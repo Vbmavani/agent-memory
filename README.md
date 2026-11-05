@@ -11,8 +11,31 @@ real model (DeepSeek) and a real database (Postgres).
 | Working | done | Everything in one model call: system prompt, profile, chat history, tool results. |
 | Short-term | done | The current chat's full history is loaded from Postgres and sent with every message. |
 | Episodic | done | The model can call `search_past_chats` and `list_recent_chats` to look up earlier chats. |
-| Semantic | done | The profile, plus facts the agent learns: a parallel extraction call decides add / update / delete per message (Mem0-style), facts are stored in `users.facts` and sent with every request. |
+| Semantic | done | The profile, plus facts the agent learns automatically or when asked ("remember / forget that…"). One memory decision per message (see below), stored in `users.facts`, sent with every request. |
 | Procedural | not yet | Behaviour rules are hard-coded in the system prompt; nothing is learned yet. |
+
+## How semantic memory is written (`server/memory.js`)
+
+There is exactly **one writer** per message, so two writers can never create overlapping facts
+(for example one adding "User is in France" while another updates "User lives in Lyon").
+
+1. While the reply is generated, a cheap `deepseek-flash` call decides add / update / delete from
+   the message and the existing facts (Mem0-style), in parallel, so it adds no wait.
+2. The chat model's `remember_fact` / `forget_fact` tools do **not** write. They only record what the
+   user explicitly asked for. If any were recorded, the decision is made again with those requests,
+   so one decision sees everything. If that call fails, the requests are applied literally.
+3. `validateOps` keeps only safe operations (known ids, clean text, one decision per fact), and
+   `mergeFacts` applies them inside a locked transaction, rejecting stale writes (the fact changed
+   since the decision) and near-duplicates ("User likes Thai food!" = "user likes thai food").
+4. Rule given to the model: one fact per attribute, so "lives in Lyon" + "in France" becomes
+   "lives in Lyon, France".
+
+## Tests
+
+```bash
+npm test             # unit tests (pure memory logic) + database tests on a separate test database
+npm run eval:memory  # live eval: scripted memory scenarios against DeepSeek (needs the API key)
+```
 
 ## Stack
 

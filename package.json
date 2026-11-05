@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "node --test \"test/*.test.js\"",
+    "eval:memory": "node eval/memory-eval.js"
   },
   "dependencies": {
     "pg": "^8.23.1",

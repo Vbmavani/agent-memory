@@ -4,6 +4,7 @@
 // Local default: database "deepseek_playground" on localhost:5432 as the current macOS user
 // (Postgres.app). Override with DATABASE_URL.
 import pg from 'pg'
+import { mergeFacts } from './memory.js'
 
 export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL || 'postgres://localhost:5432/deepseek_playground',
@@ -56,36 +57,19 @@ export async function updateUser(id, { name, email, bio }) {
 }
 
 // ---------- semantic memory: learned facts about the user ----------
-const MAX_FACTS = 100
-
-// Apply add/update/delete operations to the user's facts in one transaction.
-// Returns what actually changed, for the UI: [{op, text, old?}].
+// Apply validated operations (from server/memory.js) in one transaction. The row is locked
+// (FOR UPDATE), so concurrent messages are applied one after another and never lose a write;
+// mergeFacts rejects stale ops (fact changed since the decision) and near-duplicates.
+// Returns { changed, skipped }.
 export async function applyFactOps(userId, ops, source) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
     const { rows: [row] } = await client.query('SELECT facts FROM users WHERE id = $1 FOR UPDATE', [userId])
-    const facts = row?.facts ?? []
-    const now = new Date().toISOString()
-    const changed = []
-    for (const o of ops) {
-      const i = facts.findIndex((f) => f.id === o.id)
-      if (o.op === 'add' && facts.length < MAX_FACTS && !facts.some((f) => f.text.toLowerCase() === o.text.toLowerCase())) {
-        const id = Math.random().toString(36).slice(2, 10)
-        facts.push({ id, text: o.text, createdAt: now, updatedAt: now, source })
-        changed.push({ op: 'add', id, text: o.text })
-      } else if (o.op === 'update' && i >= 0 && facts[i].text !== o.text) {
-        const old = facts[i].text
-        facts[i] = { ...facts[i], text: o.text, updatedAt: now, source, previous: [...(facts[i].previous ?? []), old].slice(-5) }
-        changed.push({ op: 'update', id: o.id, text: o.text, old })
-      } else if (o.op === 'delete' && i >= 0) {
-        changed.push({ op: 'delete', id: o.id, text: facts[i].text })
-        facts.splice(i, 1)
-      }
-    }
+    const { facts, changed, skipped } = mergeFacts(row?.facts ?? [], ops, { source })
     if (changed.length) await client.query('UPDATE users SET facts = $2 WHERE id = $1', [userId, JSON.stringify(facts)])
     await client.query('COMMIT')
-    return changed
+    return { changed, skipped }
   } catch (e) {
     await client.query('ROLLBACK')
     throw e
