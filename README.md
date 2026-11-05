@@ -33,7 +33,8 @@ There is exactly **one writer** per message, so two writers can never create ove
 ## Tests
 
 ```bash
-npm test             # unit tests (pure memory logic) + database tests on a separate test database
+npm test             # unit tests (pure memory logic); database tests run only with TEST_DATABASE_URL
+                     # pointing at a separate, disposable database (never the real one)
 npm run eval:memory  # live eval: scripted memory scenarios against DeepSeek (needs the API key)
 ```
 
@@ -41,9 +42,12 @@ npm run eval:memory  # live eval: scripted memory scenarios against DeepSeek (ne
 
 - Vite + React frontend (`src/`)
 - Server routes as a Vite dev-server plugin (`server/api.js`), so the API key never reaches the browser
-- Postgres with two tables (`server/db.js`):
+- Supabase (Postgres) with two tables (`server/db.js`, schema in `supabase/migrations/`):
   - `users`: the profile, plus learned facts in a `facts` jsonb column
   - `chats`: one row per chat, with its full history in a `messages` jsonb column
+- Row Level Security is on for both tables, so Supabase's public REST API exposes nothing.
+  The app connects over SSL with its own login, `agent_memory_app`, which can only read and
+  write rows in these two tables (no schema changes, no other data).
 
 ## Run it locally
 
@@ -52,11 +56,13 @@ npm run eval:memory  # live eval: scripted memory scenarios against DeepSeek (ne
    security add-generic-password -U -a "$USER" -s deepseek-api-key -w
    ```
    Or set `DEEPSEEK_API_KEY` in your environment.
-2. Run Postgres locally and create the database (tables are created automatically on first request):
+2. Store the database connection string (Supabase session pooler, user `agent_memory_app.<project-ref>`)
+   in the Keychain. It contains a password, so it never goes in a file:
    ```bash
-   createdb deepseek_playground
+   security add-generic-password -U -a "$USER" -s agent-memory-database-url -w
    ```
-   Connects to `postgres://localhost:5432/deepseek_playground` by default; override with `DATABASE_URL`.
+   Or set `DATABASE_URL`. For a new Supabase project, apply `supabase/migrations/` first.
+   Set `DATABASE_CA_CERT` to Supabase's CA file to also verify the server certificate.
 3. Install and start:
    ```bash
    npm install

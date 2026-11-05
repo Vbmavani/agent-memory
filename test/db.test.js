@@ -1,29 +1,18 @@
-// Database tests for fact storage. They run against a SEPARATE database
-// (deepseek_playground_test, created if missing), never your real data.  npm test
+// Database tests for fact storage. They NEVER touch the real database: they only run when
+// TEST_DATABASE_URL points at a separate, disposable Postgres (e.g. a Supabase branch or a
+// local Postgres), and they only create and delete their own test user there.
+//   TEST_DATABASE_URL=postgres://... npm test
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import pg from 'pg'
 
-const ADMIN_URL = process.env.TEST_ADMIN_DATABASE_URL || 'postgres://localhost:5432/postgres'
-const TEST_DB = 'deepseek_playground_test'
-process.env.DATABASE_URL = process.env.TEST_DATABASE_URL || `postgres://localhost:5432/${TEST_DB}`
+const reachable = Boolean(process.env.TEST_DATABASE_URL)
+if (reachable) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL
 
 let db
-let reachable = true
 let userId
 
 before(async () => {
-  const admin = new pg.Client({ connectionString: ADMIN_URL })
-  try {
-    await admin.connect()
-    const { rowCount } = await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [TEST_DB])
-    if (!rowCount) await admin.query(`CREATE DATABASE ${TEST_DB}`)
-  } catch {
-    reachable = false
-    return
-  } finally {
-    await admin.end().catch(() => {})
-  }
+  if (!reachable) return
   db = await import('../server/db.js') // imported after DATABASE_URL points at the test database
   await db.init()
   const { rows: [u] } = await db.pool.query(`INSERT INTO users (name, facts) VALUES ('Test user', '[]') RETURNING id`)
@@ -39,8 +28,8 @@ after(async () => {
 const facts = async () => (await db.pool.query('SELECT facts FROM users WHERE id = $1', [userId])).rows[0].facts
 const reset = (f) => db.pool.query('UPDATE users SET facts = $2 WHERE id = $1', [userId, JSON.stringify(f)])
 
-test('applyFactOps adds, updates with history, and deletes', { skip: !reachable && 'Postgres not reachable' }, async (t) => {
-  if (!reachable) return t.skip('Postgres not reachable')
+test('applyFactOps adds, updates with history, and deletes', async (t) => {
+  if (!reachable) return t.skip('set TEST_DATABASE_URL to run database tests')
   await reset([{ id: 'loc', text: 'User lives in Lyon' }])
   let r = await db.applyFactOps(userId, [{ op: 'update', id: 'loc', expect: 'User lives in Lyon', text: 'User lives in Lyon, France' }], { via: 'test' })
   assert.equal(r.changed[0].op, 'update')
@@ -53,7 +42,7 @@ test('applyFactOps adds, updates with history, and deletes', { skip: !reachable 
 })
 
 test('a stale update is rejected and nothing is written', async (t) => {
-  if (!reachable) return t.skip('Postgres not reachable')
+  if (!reachable) return t.skip('set TEST_DATABASE_URL to run database tests')
   await reset([{ id: 'loc', text: 'User lives in Berlin' }])
   const r = await db.applyFactOps(userId, [{ op: 'update', id: 'loc', expect: 'User lives in Lyon', text: 'User lives in Lyon, France' }], {})
   assert.equal(r.changed.length, 0)
@@ -62,7 +51,7 @@ test('a stale update is rejected and nothing is written', async (t) => {
 })
 
 test('concurrent writes from two messages are both kept (no lost update)', async (t) => {
-  if (!reachable) return t.skip('Postgres not reachable')
+  if (!reachable) return t.skip('set TEST_DATABASE_URL to run database tests')
   await reset([])
   await Promise.all(Array.from({ length: 10 }, (_, i) =>
     db.applyFactOps(userId, [{ op: 'add', text: `User concurrent fact ${i}` }], {})))
@@ -70,7 +59,7 @@ test('concurrent writes from two messages are both kept (no lost update)', async
 })
 
 test('concurrent duplicate adds are stored once', async (t) => {
-  if (!reachable) return t.skip('Postgres not reachable')
+  if (!reachable) return t.skip('set TEST_DATABASE_URL to run database tests')
   await reset([])
   await Promise.all(Array.from({ length: 5 }, () => db.applyFactOps(userId, [{ op: 'add', text: 'User is in France' }], {})))
   assert.equal((await facts()).length, 1)

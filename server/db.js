@@ -1,18 +1,61 @@
 // Postgres storage. Exactly two tables:
 //   users  - the profile (name, email, bio) + `facts`: semantic memory the agent learned (jsonb array)
 //   chats  - one row per chat session; its full history lives in `messages` (jsonb array)
-// Local default: database "deepseek_playground" on localhost:5432 as the current macOS user
-// (Postgres.app). Override with DATABASE_URL.
+// Hosted on Supabase (Postgres). The connection string contains the database password, so it is
+// never stored in a file: it comes from env DATABASE_URL, else the macOS Keychain entry
+// "agent-memory-database-url". Remote databases are always reached over SSL.
+import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
 import pg from 'pg'
 import { mergeFacts } from './memory.js'
 
-export const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL || 'postgres://localhost:5432/deepseek_playground',
-})
+function databaseUrl() {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL
+  try {
+    return execFileSync('security',
+      ['find-generic-password', '-a', process.env.USER, '-s', 'agent-memory-database-url', '-w'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  } catch {
+    throw new Error('No database configured: set DATABASE_URL or the Keychain entry "agent-memory-database-url".')
+  }
+}
+
+// SSL for anything that is not localhost. Set DATABASE_CA_CERT to a CA file (Supabase dashboard ->
+// Database -> SSL certificate) to also verify the server's certificate; otherwise the connection is
+// encrypted but the certificate is not checked.
+function connectionConfig(raw) {
+  const url = new URL(raw)
+  const local = ['localhost', '127.0.0.1', '::1'].includes(url.hostname)
+  url.searchParams.delete('sslmode') // ssl is configured below, not by the URL
+  const ca = process.env.DATABASE_CA_CERT && fs.readFileSync(process.env.DATABASE_CA_CERT, 'utf8')
+  return {
+    connectionString: url.toString(),
+    ssl: local ? false : ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false },
+    max: 5,                        // stay well inside the free pooler's connection limit
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+  }
+}
+
+export const pool = new pg.Pool(connectionConfig(databaseUrl()))
+pool.on('error', (e) => console.error('[db] idle client error:', e.message)) // e.g. pooler restarts
+
+// Creates the schema on a brand-new database. On Supabase the tables already exist (created by
+// migration) and the app's login deliberately has no DDL rights, so it skips this.
+async function createSchemaIfMissing() {
+  const { rows: [r] } = await pool.query(
+    "SELECT to_regclass('public.users') IS NOT NULL AND to_regclass('public.chats') IS NOT NULL AS ok")
+  if (r.ok) return
+  await pool.query(SCHEMA_SQL)
+}
 
 let ready
 export function init() {
-  ready ??= pool.query(`
+  ready ??= createSchemaIfMissing().catch((e) => { ready = null; throw e })
+  return ready
+}
+
+const SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS users (
       id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       name        text NOT NULL,
@@ -32,9 +75,10 @@ export function init() {
     CREATE INDEX IF NOT EXISTS chats_user_updated_idx ON chats (user_id, updated_at DESC);
     -- semantic memory: [{id, text, createdAt, updatedAt, source: {chatId}, previous: [older texts]}]
     ALTER TABLE users ADD COLUMN IF NOT EXISTS facts jsonb NOT NULL DEFAULT '[]';
-  `).catch((e) => { ready = null; throw e })
-  return ready
-}
+    -- keep both tables away from Supabase's public REST API; the app connects as the owner
+    ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE chats ENABLE ROW LEVEL SECURITY;
+`
 
 // ---------- users ----------
 const USER_COLS = 'id, name, email, bio, facts, created_at AS "createdAt", updated_at AS "updatedAt"'
