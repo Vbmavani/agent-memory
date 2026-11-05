@@ -1,0 +1,239 @@
+import { useEffect, useRef, useState } from 'react'
+import Markdown from 'react-markdown'
+
+// Prefer the cheapest-looking model the key can use.
+const pickCheap = (ids) =>
+  ids.find((m) => m.includes('flash')) || ids.find((m) => m.includes('chat')) || ids[0] || ''
+
+const LAST_CHAT = 'deepseek-playground:lastChat'
+const store = {
+  get: () => { try { return localStorage.getItem(LAST_CHAT) } catch { return null } },
+  set: (v) => { try { v ? localStorage.setItem(LAST_CHAT, v) : localStorage.removeItem(LAST_CHAT) } catch {} },
+}
+
+async function api(path, init) {
+  const r = await fetch('/api' + path, init)
+  const d = await r.json()
+  if (d.error) throw new Error(d.error)
+  return d
+}
+const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+
+function when(iso) {
+  const d = new Date(iso)
+  const today = new Date().toDateString() === d.toDateString()
+  return today ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { day: 'numeric', month: 'short' })
+}
+
+// One tool call the model made before answering (episodic memory lookup).
+function ToolCall({ call }) {
+  const label = call.name === 'search_past_chats'
+    ? <>Searched past chats for <b>“{call.args.query}”</b></>
+    : call.name === 'list_recent_chats'
+      ? <>Listed chats from the last <b>{call.args.days ?? 7} days</b></>
+      : <>Called <b>{call.name}</b></>
+  return (
+    <details className="tool">
+      <summary>
+        <span className="tool-icon" aria-hidden>{call.name === 'search_past_chats' ? '🔎' : '🗂'}</span>
+        {label} · {call.error ? <span className="tool-err">{call.error}</span> : `${call.count} found`}
+      </summary>
+      {call.found?.length > 0 && (
+        <ul>
+          {call.found.map((f, i) => (
+            <li key={i}>
+              <span className="tool-chat">{f.chat}</span>
+              <span className="tool-date">{when(f.date)}</span>
+              {f.snippet && <div className="tool-snip">{f.snippet}</div>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
+  )
+}
+
+function Profile({ user, onSaved, onClose }) {
+  const [form, setForm] = useState({ name: user.name, email: user.email ?? '', bio: user.bio ?? '' })
+  const [status, setStatus] = useState('')
+  const [saving, setSaving] = useState(false)
+  const set = (k) => (e) => { setForm({ ...form, [k]: e.target.value }); setStatus('') }
+
+  async function save(e) {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      onSaved(await api('/profile', json('PUT', form)))
+      setStatus('Saved')
+    } catch (err) {
+      setStatus(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-wrap" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
+        <div className="modal-head">
+          <h2>Profile</h2>
+          <button type="button" className="ghost" onClick={onClose}>Close</button>
+        </div>
+        <label className="field">Name<input value={form.name} onChange={set('name')} required /></label>
+        <label className="field">Email<input type="email" value={form.email} onChange={set('email')} placeholder="optional" /></label>
+        <label className="field">About you<textarea rows={4} value={form.bio} onChange={set('bio')} placeholder="optional" /></label>
+        <div className="modal-foot">
+          <span className={status === 'Saved' ? 'ok' : 'bad'}>{status}</span>
+          <button className="primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        </div>
+        <p className="hint">Stored in the <code>users</code> table in Postgres. Member since {new Date(user.createdAt).toLocaleDateString()}.</p>
+      </form>
+    </div>
+  )
+}
+
+export default function App() {
+  const [models, setModels] = useState([])
+  const [model, setModel] = useState('')
+  const [user, setUser] = useState(null)
+  const [showProfile, setShowProfile] = useState(false)
+  const [chats, setChats] = useState([])        // sidebar summaries
+  const [chat, setChat] = useState(null)        // open chat {id, title, messages}
+  const [pending, setPending] = useState(null)  // user text shown while waiting
+  const [input, setInput] = useState('')
+  const [error, setError] = useState('')
+  const [drawer, setDrawer] = useState(false)
+  const logRef = useRef(null)
+  const inputRef = useRef(null)
+
+  const refreshList = () => api('/chats').then((d) => setChats(d.chats)).catch((e) => setError(e.message))
+
+  useEffect(() => {
+    api('/models')
+      .then((d) => { setModels(d.models); setModel(pickCheap(d.models)) })
+      .catch((e) => setError(e.message))
+    api('/profile').then(setUser).catch((e) => setError(e.message))
+    refreshList()
+    const last = store.get()
+    if (last) api(`/chats/${last}`).then(setChat).catch(() => store.set(null))
+  }, [])
+
+  useEffect(() => {
+    logRef.current?.scrollTo(0, logRef.current.scrollHeight)
+  }, [chat, pending])
+
+  function openChat(id) {
+    setDrawer(false)
+    setError('')
+    api(`/chats/${id}`).then((c) => { setChat(c); store.set(c.id) }).catch((e) => setError(e.message))
+  }
+
+  function newChat() {
+    setDrawer(false)
+    setChat(null)
+    setError('')
+    store.set(null)
+    inputRef.current?.focus()
+  }
+
+  async function removeChat(id) {
+    await api(`/chats/${id}`, { method: 'DELETE' }).catch((e) => setError(e.message))
+    if (chat?.id === id) newChat()
+    refreshList()
+  }
+
+  async function send(e) {
+    e.preventDefault()
+    const text = input.trim()
+    if (!text || pending) return
+    setInput('')
+    setPending(text)
+    setError('')
+    try {
+      const c = await api(`/chats/${chat?.id ?? 'new'}/messages`, json('POST', { model, content: text }))
+      setChat(c)
+      store.set(c.id)
+      refreshList()
+    } catch (err) {
+      setError(err.message)
+      setInput(text) // give the text back so it isn't lost
+    } finally {
+      setPending(null)
+    }
+  }
+
+  const messages = chat?.messages ?? []
+
+  return (
+    <div className="shell">
+      <aside className={drawer ? 'open' : ''}>
+        <button className="new" onClick={newChat}>+ New chat</button>
+        <div className="label">Previous chats</div>
+        {!chats.length && <p className="none">No saved chats yet.</p>}
+        <ul>
+          {chats.map((c) => (
+            <li key={c.id} className={c.id === chat?.id ? 'active' : ''}>
+              <button className="item" onClick={() => openChat(c.id)}>
+                <span className="title">{c.title}</span>
+                <span className="sub">{when(c.updatedAt)} · {c.count} msgs</span>
+              </button>
+              <button className="del" title="Delete chat" aria-label={`Delete chat ${c.title}`} onClick={() => removeChat(c.id)}>×</button>
+            </li>
+          ))}
+        </ul>
+        {user && (
+          <button className="me" onClick={() => { setShowProfile(true); setDrawer(false) }}>
+            <span className="avatar">{user.name.slice(0, 1).toUpperCase()}</span>
+            <span className="me-text"><span className="title">{user.name}</span><span className="sub">Profile</span></span>
+          </button>
+        )}
+      </aside>
+      {drawer && <div className="scrim" onClick={() => setDrawer(false)} />}
+
+      <div className="app">
+        <header>
+          <button className="ghost menu" onClick={() => setDrawer(true)}>☰ Chats</button>
+          <h1>DeepSeek <span>Playground</span></h1>
+          <label>
+            Model
+            <select value={model} onChange={(e) => setModel(e.target.value)} disabled={!models.length}>
+              {models.map((m) => <option key={m}>{m}</option>)}
+            </select>
+          </label>
+        </header>
+
+        <main ref={logRef}>
+          {!messages.length && !pending && (
+            <p className="empty">
+              {user ? <>Hi {user.name}. </> : null}Start a chat. Every message is sent to the model together with this chat's previous history, and everything is saved in Postgres.
+            </p>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} className={`msg ${m.role}`}>
+              {m.role === 'assistant' ? <div className="md"><Markdown>{m.content}</Markdown></div> : m.content}
+              {m.meta?.toolCalls?.map((t, j) => <ToolCall key={j} call={t} />)}
+              {m.meta && (
+                <div className="meta">
+                  {m.meta.model} · {m.meta.profile ? `profile: ${m.meta.profile} · ` : ''}{m.meta.contextMessages} msgs of context ·{m.meta.modelCalls > 1 ? ` ${m.meta.modelCalls} model calls ·` : ''} {m.meta.promptTokens} in / {m.meta.outTokens} out tokens · {(m.meta.ms / 1000).toFixed(1)}s
+                </div>
+              )}
+            </div>
+          ))}
+          {pending && <>
+            <div className="msg user">{pending}</div>
+            <div className="msg assistant thinking">…thinking (may search your past chats)</div>
+          </>}
+        </main>
+
+        {error && <div className="error">{error}</div>}
+
+        <form className="composer" onSubmit={send}>
+          <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Type a message…" autoFocus />
+          <button className="primary" disabled={!!pending || !input.trim() || !model}>Send</button>
+        </form>
+      </div>
+
+      {showProfile && user && <Profile user={user} onSaved={setUser} onClose={() => setShowProfile(false)} />}
+    </div>
+  )
+}

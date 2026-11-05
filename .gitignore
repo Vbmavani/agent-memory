@@ -1,0 +1,21 @@
+# dependencies / build
+node_modules/
+dist/
+
+# secrets: the DeepSeek key lives in the macOS Keychain, never in files
+.env
+.env.*
+*.pem
+*.key
+
+# local data: chats and profile live in Postgres; old JSON backups stay local
+data/
+*.sql
+*.dump
+
+# logs / OS / editor
+*.log
+.DS_Store
+.vscode/
+.idea/
+.cursor/
