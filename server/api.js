@@ -25,13 +25,22 @@ function systemPrompt(user) {
   if (user.email) lines.push(`- Email: ${user.email}`)
   if (user.bio) lines.push(`- About them: ${user.bio}`)
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-  const facts = (user.facts ?? []).map((f) => `- ${f.text}`)
+  const facts = (user.facts ?? []).map((f) => `- [${f.id}] ${f.text}`)
   return `${SYSTEM}
 
 You are talking to this user (from their saved profile):
 ${lines.join('\n')}
-${facts.length ? `\nThings you have learned about them in earlier conversations (newest knowledge wins):\n${facts.join('\n')}\n` : ''}
-Use this naturally when it helps (e.g. greet them by name, respect allergies and preferences). If they ask what you know about them, tell them.
+
+Long-term facts you remember about them (id in brackets; newest knowledge wins):
+${facts.length ? facts.join('\n') : '(none yet)'}
+Use these naturally when it helps (e.g. greet them by name, respect allergies and preferences). If they ask what you know about them, tell them.
+
+YOUR MEMORY WORKS IN TWO WAYS:
+1. Automatic: after every message, lasting facts the user shares about themselves are saved in the background.
+   You do not need to do anything for that, and you can truthfully tell the user you will remember such things.
+2. On request: when the user explicitly asks you to remember, correct or forget something, call remember_fact
+   (with replaces_id to correct an existing fact) or forget_fact (with the fact's id), then confirm briefly.
+Never claim you cannot remember things.
 
 Today is ${today}.
 
@@ -75,10 +84,52 @@ const TOOLS = [
       },
     },
   },
+  // semantic memory on request (the "hot path"); the background extractor covers everything else
+  {
+    type: 'function',
+    function: {
+      name: 'remember_fact',
+      description:
+        'Save a long-term fact about the user, ONLY when they explicitly ask you to remember or correct something. ' +
+        'Write it as one short third-person sentence starting with "User". To correct an existing fact, pass its id as replaces_id.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'The fact, e.g. "User likes Thai food"' },
+          replaces_id: { type: 'string', description: 'Id of an existing fact this one replaces (optional)' },
+        },
+        required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'forget_fact',
+      description: 'Delete a remembered fact when the user explicitly asks you to forget it or says it is no longer true.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Id of the fact to forget (from the facts list)' } },
+        required: ['id'],
+      },
+    },
+  },
 ]
+const MEMORY_TOOLS = new Set(['remember_fact', 'forget_fact'])
 
-async function runTool(name, args, { userId, chatId }) {
+async function runTool(name, args, { userId, chatId, memoryChanges }) {
   const clamp = (n, lo, hi, d) => Math.min(hi, Math.max(lo, Number.isFinite(+n) ? Math.round(+n) : d))
+  if (name === 'remember_fact' || name === 'forget_fact') {
+    const op = name === 'forget_fact' ? { op: 'delete', id: String(args.id ?? '') }
+      : args.replaces_id ? { op: 'update', id: String(args.replaces_id), text: String(args.text ?? '').trim().slice(0, 200) }
+        : { op: 'add', text: String(args.text ?? '').trim().slice(0, 200) }
+    if (op.op !== 'delete' && !op.text) return { error: 'text is required' }
+    const changed = await db.applyFactOps(userId, [op], { chatId, via: 'tool' })
+    memoryChanges.push(...changed.map((c) => ({ ...c, source: 'tool' })))
+    return changed.length
+      ? { ok: true, changed }
+      : { ok: false, note: op.op === 'add' ? 'Already remembered' : 'No fact with that id' }
+  }
   if (name === 'search_past_chats') {
     const query = String(args.query ?? '').trim()
     if (!query) return { error: 'query is required' }
@@ -215,6 +266,7 @@ async function answerWithTools({ model, messages, ctx }) {
       try { args = JSON.parse(call.function.arguments || '{}') } catch {}
       const result = await runTool(call.function.name, args, ctx).catch((e) => ({ error: String(e.message || e) }))
       convo.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) })
+      if (MEMORY_TOOLS.has(call.function.name)) continue // shown in the UI as memory changes instead
       toolCalls.push({
         name: call.function.name,
         args,
@@ -315,13 +367,27 @@ async function handle(req, res) {
 
     const t = Date.now()
     const previousReply = chat.messages.findLast((m) => m.role === 'assistant')?.content
+    const ctx = { userId: user.id, chatId: chat.id, memoryChanges: [] } // memory tools record changes here
     // Reply and memory extraction run at the same time, so learning adds almost no wait.
     const [out, learned] = await Promise.all([
-      answerWithTools({ model, messages: prompt, ctx: { userId: user.id, chatId: chat.id } }),
+      answerWithTools({ model, messages: prompt, ctx }),
       extractFacts(user, text, previousReply).catch(() => ({ ops: [], tokens: 0 })),
     ])
     if (out.status !== 200) return send(res, out.status, out.data) // nothing saved if the call failed
-    const memory = learned.ops.length ? await db.applyFactOps(user.id, learned.ops, { chatId: chat.id }) : []
+
+    // Hybrid memory merge. The chat model's explicit remember/forget calls win:
+    //  - background ops on a fact the tools already touched are dropped (no fighting),
+    //  - background ADDs are dropped when the tools saved something (no near-duplicates),
+    //  - other background updates/deletes still apply, so a request the tool only half-handled
+    //    ("forget my drink AND my hiking") is still completed.
+    const toolTouched = new Set(ctx.memoryChanges.map((c) => c.id))
+    const toolSaved = ctx.memoryChanges.some((c) => c.op !== 'delete')
+    const bgOps = learned.ops.filter((o) => !toolTouched.has(o.id) && !(o.op === 'add' && toolSaved))
+    const auto = bgOps.length
+      ? (await db.applyFactOps(user.id, bgOps, { chatId: chat.id, via: 'auto' })).map((c) => ({ ...c, source: 'auto' }))
+      : []
+    const memory = [...ctx.memoryChanges, ...auto]
+    const usedTools = ctx.memoryChanges.length > 0
 
     const now = new Date().toISOString()
     const saved = await db.saveTurn({
@@ -344,7 +410,8 @@ async function handle(req, res) {
             modelCalls: out.rounds,
             toolCalls: out.toolCalls,
             factsInPrompt: user.facts?.length ?? 0,
-            memory,                       // what semantic memory changed: [{op, text, old?}]
+            memory,                       // what semantic memory changed: [{op, text, old?, source: 'tool'|'auto'}]
+            backgroundSkipped: usedTools ? learned.ops.length - bgOps.length : 0,
             memoryTokens: learned.tokens, // cost of the extraction call
           },
         },

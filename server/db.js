@@ -71,14 +71,15 @@ export async function applyFactOps(userId, ops, source) {
     for (const o of ops) {
       const i = facts.findIndex((f) => f.id === o.id)
       if (o.op === 'add' && facts.length < MAX_FACTS && !facts.some((f) => f.text.toLowerCase() === o.text.toLowerCase())) {
-        facts.push({ id: Math.random().toString(36).slice(2, 10), text: o.text, createdAt: now, updatedAt: now, source })
-        changed.push({ op: 'add', text: o.text })
+        const id = Math.random().toString(36).slice(2, 10)
+        facts.push({ id, text: o.text, createdAt: now, updatedAt: now, source })
+        changed.push({ op: 'add', id, text: o.text })
       } else if (o.op === 'update' && i >= 0 && facts[i].text !== o.text) {
         const old = facts[i].text
         facts[i] = { ...facts[i], text: o.text, updatedAt: now, source, previous: [...(facts[i].previous ?? []), old].slice(-5) }
-        changed.push({ op: 'update', text: o.text, old })
+        changed.push({ op: 'update', id: o.id, text: o.text, old })
       } else if (o.op === 'delete' && i >= 0) {
-        changed.push({ op: 'delete', text: facts[i].text })
+        changed.push({ op: 'delete', id: o.id, text: facts[i].text })
         facts.splice(i, 1)
       }
     }

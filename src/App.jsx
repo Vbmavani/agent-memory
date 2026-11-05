@@ -54,10 +54,14 @@ function ToolCall({ call }) {
 }
 
 // What semantic memory changed because of this message.
+// source 'tool' = the chat model called remember/forget because you asked; 'auto' = background extractor.
 function MemoryChange({ change }) {
-  if (change.op === 'add') return <div className="mem add">🧠 Remembered: <b>{change.text}</b></div>
-  if (change.op === 'update') return <div className="mem upd">✏️ Updated: <s>{change.old}</s> → <b>{change.text}</b></div>
-  return <div className="mem del">🗑 Forgot: <s>{change.text}</s></div>
+  const tag = change.source === 'tool'
+    ? <span className="mem-src tool" title="The chat model called a memory tool because you asked">you asked</span>
+    : <span className="mem-src" title="Saved by the background memory extractor">automatic</span>
+  if (change.op === 'add') return <div className="mem add">🧠 Remembered: <b>{change.text}</b>{tag}</div>
+  if (change.op === 'update') return <div className="mem upd">✏️ Updated: <s>{change.old}</s> → <b>{change.text}</b>{tag}</div>
+  return <div className="mem del">🗑 Forgot: <s>{change.text}</s>{tag}</div>
 }
 
 function Profile({ user, onSaved, onClose }) {
@@ -238,7 +242,7 @@ export default function App() {
               {m.meta?.memory?.map((c, j) => <MemoryChange key={`m${j}`} change={c} />)}
               {m.meta && (
                 <div className="meta">
-                  {m.meta.model} · {m.meta.profile ? `profile: ${m.meta.profile} · ` : ''}{m.meta.factsInPrompt != null ? `${m.meta.factsInPrompt} facts · ` : ''}{m.meta.contextMessages} msgs of context ·{m.meta.modelCalls > 1 ? ` ${m.meta.modelCalls} model calls ·` : ''} {m.meta.promptTokens} in / {m.meta.outTokens} out tokens · {(m.meta.ms / 1000).toFixed(1)}s
+                  {m.meta.model} · {m.meta.profile ? `profile: ${m.meta.profile} · ` : ''}{m.meta.factsInPrompt != null ? `${m.meta.factsInPrompt} facts known · ` : ''}{m.meta.contextMessages} msgs of context ·{m.meta.modelCalls > 1 ? ` ${m.meta.modelCalls} model calls ·` : ''} {m.meta.promptTokens} in / {m.meta.outTokens} out tokens · {(m.meta.ms / 1000).toFixed(1)}s
                 </div>
               )}
             </div>
