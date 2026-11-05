@@ -7,7 +7,7 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import pg from 'pg'
-import { mergeFacts } from './memory.js'
+import { mergeFacts, mergeProcedures } from './memory.js'
 
 function databaseUrl() {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL
@@ -75,13 +75,15 @@ const SCHEMA_SQL = `
     CREATE INDEX IF NOT EXISTS chats_user_updated_idx ON chats (user_id, updated_at DESC);
     -- semantic memory: [{id, text, createdAt, updatedAt, source: {chatId}, previous: [older texts]}]
     ALTER TABLE users ADD COLUMN IF NOT EXISTS facts jsonb NOT NULL DEFAULT '[]';
+    -- procedural memory: [{id, when, do, createdAt, updatedAt, source, previous}]
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS procedures jsonb NOT NULL DEFAULT '[]';
     -- keep both tables away from Supabase's public REST API; the app connects as the owner
     ALTER TABLE users ENABLE ROW LEVEL SECURITY;
     ALTER TABLE chats ENABLE ROW LEVEL SECURITY;
 `
 
 // ---------- users ----------
-const USER_COLS = 'id, name, email, bio, facts, created_at AS "createdAt", updated_at AS "updatedAt"'
+const USER_COLS = 'id, name, email, bio, facts, procedures, created_at AS "createdAt", updated_at AS "updatedAt"'
 
 // Single-user local app: the profile is the oldest user row (created on first run).
 export async function currentUser() {
@@ -100,20 +102,24 @@ export async function updateUser(id, { name, email, bio }) {
   return u
 }
 
-// ---------- semantic memory: learned facts about the user ----------
+// ---------- long-term memory: facts (semantic) and procedures (procedural) ----------
 // Apply validated operations (from server/memory.js) in one transaction. The row is locked
 // (FOR UPDATE), so concurrent messages are applied one after another and never lose a write;
-// mergeFacts rejects stale ops (fact changed since the decision) and near-duplicates.
-// Returns { changed, skipped }.
-export async function applyFactOps(userId, ops, source) {
+// mergeItems rejects stale ops (item changed since the decision) and near-duplicates.
+// Returns { facts: {changed, skipped}, procedures: {changed, skipped} }.
+export async function applyMemoryOps(userId, { facts: factOps = [], procedures: procOps = [] }, source) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-    const { rows: [row] } = await client.query('SELECT facts FROM users WHERE id = $1 FOR UPDATE', [userId])
-    const { facts, changed, skipped } = mergeFacts(row?.facts ?? [], ops, { source })
-    if (changed.length) await client.query('UPDATE users SET facts = $2 WHERE id = $1', [userId, JSON.stringify(facts)])
+    const { rows: [row] } = await client.query('SELECT facts, procedures FROM users WHERE id = $1 FOR UPDATE', [userId])
+    const f = mergeFacts(row?.facts ?? [], factOps, { source })
+    const p = mergeProcedures(row?.procedures ?? [], procOps, { source })
+    if (f.changed.length || p.changed.length) {
+      await client.query('UPDATE users SET facts = $2, procedures = $3 WHERE id = $1',
+        [userId, JSON.stringify(f.facts), JSON.stringify(p.procedures)])
+    }
     await client.query('COMMIT')
-    return { changed, skipped }
+    return { facts: { changed: f.changed, skipped: f.skipped }, procedures: { changed: p.changed, skipped: p.skipped } }
   } catch (e) {
     await client.query('ROLLBACK')
     throw e
@@ -122,14 +128,20 @@ export async function applyFactOps(userId, ops, source) {
   }
 }
 
-// The user removes a fact by hand ("forget this").
-export async function deleteFact(userId, factId) {
+export async function applyFactOps(userId, ops, source) {
+  return (await applyMemoryOps(userId, { facts: ops }, source)).facts
+}
+
+// The user removes a fact or procedure by hand from the profile screen.
+async function removeItem(userId, column, itemId) {
   const { rows: [u] } = await pool.query(
-    `UPDATE users SET facts = coalesce(
-       (SELECT jsonb_agg(f) FROM jsonb_array_elements(facts) f WHERE f->>'id' <> $2), '[]')
-     WHERE id = $1 RETURNING ${USER_COLS}`, [userId, factId])
+    `UPDATE users SET ${column} = coalesce(
+       (SELECT jsonb_agg(x) FROM jsonb_array_elements(${column}) x WHERE x->>'id' <> $2), '[]')
+     WHERE id = $1 RETURNING ${USER_COLS}`, [userId, itemId])
   return u
 }
+export const deleteFact = (userId, id) => removeItem(userId, 'facts', id)
+export const deleteProcedure = (userId, id) => removeItem(userId, 'procedures', id)
 
 // ---------- chats ----------
 const CHAT_COLS = 'id, title, messages, created_at AS "createdAt", updated_at AS "updatedAt"'

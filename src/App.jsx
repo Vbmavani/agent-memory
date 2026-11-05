@@ -58,7 +58,14 @@ function ToolCall({ call }) {
 function MemoryChange({ change }) {
   const tag = change.source === 'tool'
     ? <span className="mem-src tool" title="The chat model called a memory tool because you asked">you asked</span>
-    : <span className="mem-src" title="Saved by the background memory extractor">automatic</span>
+    : change.source === 'lesson'
+      ? <span className="mem-src lesson" title="The assistant learned this from its own experience">self-learned</span>
+      : <span className="mem-src" title="Saved by the background memory extractor">automatic</span>
+  if (change.kind === 'procedure') {
+    if (change.op === 'add') return <div className="mem add proc">📘 Learned how to work: <b>when {change.when}</b> → {change.do}{tag}</div>
+    if (change.op === 'update') return <div className="mem upd proc">📘 Updated routine: <b>when {change.when}</b> → {change.do}{tag}</div>
+    return <div className="mem del proc">🗑 Stopped: <s>when {change.when}</s>{tag}</div>
+  }
   if (change.op === 'add') return <div className="mem add">🧠 Remembered: <b>{change.text}</b>{tag}</div>
   if (change.op === 'update') return <div className="mem upd">✏️ Updated: <s>{change.old}</s> → <b>{change.text}</b>{tag}</div>
   return <div className="mem del">🗑 Forgot: <s>{change.text}</s>{tag}</div>
@@ -109,6 +116,21 @@ function Profile({ user, onSaved, onClose }) {
                 <span className="fact-date">{when(f.updatedAt)}{f.previous?.length ? ` · was: ${f.previous.at(-1)}` : ''}</span>
                 <button type="button" className="del" title="Forget this" aria-label={`Forget: ${f.text}`}
                   onClick={async () => onSaved(await api(`/profile/facts/${f.id}`, { method: 'DELETE' }))}>×</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="facts">
+          <h3>How I work with you ({user.procedures?.length ?? 0})</h3>
+          {!user.procedures?.length && <p className="hint">No routines yet. Teach me one ("when I say standup, ask me…") or tell me how you want answers, and I'll keep doing it in every chat.</p>}
+          <ul>
+            {(user.procedures ?? []).slice().reverse().map((p) => (
+              <li key={p.id}>
+                <span className="fact-text"><b>When {p.when}</b> → {p.do}</span>
+                <span className="fact-date">{when(p.updatedAt)}{{ tool: ' · you asked', lesson: ' · self-learned' }[p.source?.via] ?? ' · learned automatically'}</span>
+                <button type="button" className="del" title="Stop doing this" aria-label={`Stop: ${p.when}`}
+                  onClick={async () => onSaved(await api(`/profile/procedures/${p.id}`, { method: 'DELETE' }))}>×</button>
               </li>
             ))}
           </ul>
@@ -242,7 +264,7 @@ export default function App() {
               {m.meta?.memory?.map((c, j) => <MemoryChange key={`m${j}`} change={c} />)}
               {m.meta && (
                 <div className="meta">
-                  {m.meta.model} · {m.meta.profile ? `profile: ${m.meta.profile} · ` : ''}{m.meta.factsInPrompt != null ? `${m.meta.factsInPrompt} facts known · ` : ''}{m.meta.contextMessages} msgs of context ·{m.meta.modelCalls > 1 ? ` ${m.meta.modelCalls} model calls ·` : ''} {m.meta.promptTokens} in / {m.meta.outTokens} out tokens · {(m.meta.ms / 1000).toFixed(1)}s
+                  {m.meta.model} · {m.meta.profile ? `profile: ${m.meta.profile} · ` : ''}{m.meta.factsInPrompt != null ? `${m.meta.factsInPrompt} facts known · ` : ''}{m.meta.proceduresInPrompt ? `${m.meta.proceduresInPrompt} procedures · ` : ''}{m.meta.contextMessages} msgs of context ·{m.meta.modelCalls > 1 ? ` ${m.meta.modelCalls} model calls ·` : ''} {m.meta.promptTokens} in / {m.meta.outTokens} out tokens · {(m.meta.ms / 1000).toFixed(1)}s
                 </div>
               )}
             </div>

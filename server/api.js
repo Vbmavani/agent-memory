@@ -7,7 +7,8 @@
 //   2. this chat's previous history (short-term / working memory)
 //   3. the new message
 //   4. TOOLS: search the user's OTHER chats (episodic memory), and record explicit
-//      remember / forget requests (semantic memory, applied by server/memory.js after the reply)
+//      remember / forget requests for facts (semantic memory) and procedures (procedural memory),
+//      applied by server/memory.js after the reply
 import { randomUUID } from 'node:crypto'
 import * as db from './db.js'
 import { deepseek } from './deepseek.js'
@@ -26,6 +27,7 @@ function systemPrompt(user) {
   if (user.bio) lines.push(`- About them: ${user.bio}`)
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
   const facts = (user.facts ?? []).map((f) => `- [${f.id}] ${f.text}`)
+  const procedures = (user.procedures ?? []).map((p) => `- [${p.id}] WHEN ${p.when} -> ${p.do}`)
   return `${SYSTEM}
 
 You are talking to this user (from their saved profile):
@@ -35,13 +37,23 @@ Long-term facts you remember about them (id in brackets; newest knowledge wins):
 ${facts.length ? facts.join('\n') : '(none yet)'}
 Use these naturally when it helps (e.g. greet them by name, respect allergies and preferences). If they ask what you know about them, tell them.
 
-YOUR MEMORY WORKS IN TWO WAYS:
-1. Automatic: after every message, lasting facts the user shares about themselves are saved in the background,
-   merged with what you already know. You can truthfully tell the user you will remember such things.
-2. On request: when the user explicitly asks you to remember, correct or forget something, call remember_fact
-   (with replaces_id when it corrects an existing fact) or forget_fact (with the fact's id). The change is applied
-   right after your reply and merged with existing facts, so just confirm briefly. If a fact already covers it,
-   point to that fact instead of saving it again.
+HOW THIS USER WANTS YOU TO WORK (procedures you learned from them; id in brackets):
+${procedures.length ? procedures.join('\n') : '(none yet)'}
+Whenever a procedure's situation applies, follow it exactly, in any chat, without being reminded. Procedures
+override the default style above. If the user says only a trigger word, start that routine straight away.
+
+YOUR MEMORY WORKS IN THREE WAYS:
+1. Automatic: after every message, lasting facts the user shares about themselves, and routines or standing rules
+   for how you should work, are saved in the background and merged with what you already know. You can
+   truthfully tell the user you will remember such things.
+2. On request: when the user explicitly asks you to remember, correct or forget a FACT about themselves, call
+   remember_fact (with replaces_id when it corrects an existing fact) or forget_fact. When they tell you HOW to
+   work (a routine, "when I say X do Y", "from now on", format, length, tone or style rules, or a correction of
+   how you answered that should apply next time), call save_procedure (with replaces_id to change an existing
+   one) or forget_procedure. Changes are applied right after your reply and merged with what exists, so just
+   confirm briefly. If something already covers it, point to it instead of saving it again.
+3. Lessons: if you notice a better way to do something for this user (for example a tool only worked after you
+   changed how you used it), call save_procedure with that lesson so you get it right first time next time.
 Never claim you cannot remember things.
 
 Today is ${today}.
@@ -116,8 +128,40 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'save_procedure',
+      description:
+        'Record HOW the user wants you to work from now on: a routine they teach ("when I say standup, ask me..."), a standing rule ' +
+        '("from now on...", "always...", "never..."), a format/length/style preference, or a lesson you learned about doing a task well. ' +
+        'Pass replaces_id to change an existing procedure (write the complete new instructions). Applied right after your reply.',
+      parameters: {
+        type: 'object',
+        properties: {
+          when: { type: 'string', description: 'The situation or trigger, e.g. "the user says \'standup\'" or "explaining a technical concept"' },
+          do: { type: 'string', description: 'Concrete step-by-step instructions to yourself, in order' },
+          replaces_id: { type: 'string', description: 'Id of an existing procedure this one changes (optional)' },
+          self_learned: { type: 'boolean', description: 'true if this is your own lesson from experience, not something the user asked for' },
+        },
+        required: ['when', 'do'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'forget_procedure',
+      description: 'Record that the user wants you to STOP following a procedure (by id from the procedures list).',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Id of the procedure to drop' } },
+        required: ['id'],
+      },
+    },
+  },
 ]
-const MEMORY_TOOLS = new Set(['remember_fact', 'forget_fact'])
+const MEMORY_TOOLS = new Set(['remember_fact', 'forget_fact', 'save_procedure', 'forget_procedure'])
 
 async function runTool(name, args, ctx) {
   const clamp = (n, lo, hi, d) => Math.min(hi, Math.max(lo, Number.isFinite(+n) ? Math.round(+n) : d))
@@ -134,11 +178,36 @@ async function runTool(name, args, ctx) {
     ctx.memoryRequests.push({ action: 'forget', id: fact.id, text: fact.text })
     return { ok: true, status: 'recorded', note: 'Applied right after your reply. Confirm briefly.' }
   }
+  if (name === 'save_procedure') {
+    const when = String(args.when ?? '').trim().slice(0, 150)
+    const todo = String(args.do ?? '').trim().slice(0, 800)
+    if (!when || !todo) return { error: 'when and do are required' }
+    const replaces = ctx.procedures.find((p) => p.id === args.replaces_id)
+    ctx.memoryRequests.push({
+      action: 'learn_procedure', when, do: todo,
+      ...(replaces && { replaces_id: replaces.id, replaces_when: replaces.when }),
+      ...(args.self_learned === true && { self_learned: true }),
+    })
+    return { ok: true, status: 'recorded', note: 'Applied right after your reply, merged with existing procedures. Confirm briefly.' }
+  }
+  if (name === 'forget_procedure') {
+    const proc = ctx.procedures.find((p) => p.id === args.id)
+    if (!proc) return { ok: false, error: 'No procedure with that id. Use an id from the procedures list.' }
+    ctx.memoryRequests.push({ action: 'forget_procedure', id: proc.id, when: proc.when })
+    return { ok: true, status: 'recorded', note: 'Applied right after your reply. Confirm briefly.' }
+  }
   if (name === 'search_past_chats') {
     const query = String(args.query ?? '').trim()
     if (!query) return { error: 'query is required' }
     const results = await db.searchPastChats(ctx.userId, ctx.chatId, query, clamp(args.limit, 1, 10, 6))
-    return { query, count: results.length, results }
+    const out = { query, count: results.length, results }
+    // Procedural learning from experience: a retry worked after a search that found nothing.
+    if (!results.length) ctx.failedQueries.push(query)
+    else if (ctx.failedQueries.length && !ctx.procedures.some((p) => /search/i.test(p.when))) {
+      out.lesson = `Your earlier search ${JSON.stringify(ctx.failedQueries)} found nothing, but ${JSON.stringify(query)} worked. ` +
+        'Call save_procedure (self_learned: true) with when "searching past chats" and what to do differently, so the first search works next time.'
+    }
+    return out
   }
   if (name === 'list_recent_chats') {
     const days = clamp(args.days, 1, 90, 7)
@@ -199,7 +268,7 @@ async function answerWithTools({ model, messages, ctx }) {
   }
 }
 
-// The single semantic-memory write for one message (see server/memory.js for the design).
+// The single memory write for one message: facts and procedures together (see server/memory.js).
 async function updateMemory({ user, chatId, text, previousReply, speculative, requests }) {
   let decision = speculative
   let tokens = speculative.tokens
@@ -208,17 +277,31 @@ async function updateMemory({ user, chatId, text, previousReply, speculative, re
     tokens += decision.tokens
     if (!decision.ok) {
       console.warn('[memory] decision with requests failed, applying requests literally:', decision.error)
-      decision = { ok: true, ops: memory.requestsToOps(requests, user.facts ?? []) }
+      decision = {
+        ok: true,
+        ops: memory.requestsToOps(requests, user.facts ?? []),
+        procOps: memory.requestsToProcOps(requests, user.procedures ?? []),
+      }
     }
   } else if (!speculative.ok) {
     console.warn('[memory] background decision failed:', speculative.error)
   }
-  const source = requests.length ? 'tool' : 'auto'
-  const { changed, skipped } = decision.ops.length
-    ? await db.applyFactOps(user.id, decision.ops, { chatId, via: source })
-    : { changed: [], skipped: [] }
+  // 'tool' = the user asked, 'lesson' = the agent's own lesson from experience, 'auto' = background decision
+  const source = !requests.length ? 'auto' : requests.every((r) => r.self_learned) ? 'lesson' : 'tool'
+  const empty = { changed: [], skipped: [] }
+  const r = decision.ops.length || decision.procOps.length
+    ? await db.applyMemoryOps(user.id, { facts: decision.ops, procedures: decision.procOps }, { chatId, via: source })
+    : { facts: empty, procedures: empty }
+  const skipped = [...r.facts.skipped, ...r.procedures.skipped]
   if (skipped.length) console.info('[memory] skipped ops:', skipped.map((s) => `${s.op}:${s.reason}`).join(', '))
-  return { changes: changed.map((c) => ({ ...c, source })), skipped: skipped.length, tokens }
+  return {
+    changes: [
+      ...r.facts.changed.map((c) => ({ ...c, kind: 'fact', source })),
+      ...r.procedures.changed.map((c) => ({ ...c, kind: 'procedure', source })),
+    ],
+    skipped: skipped.length,
+    tokens,
+  }
 }
 
 // ---------- http helpers ----------
@@ -255,6 +338,11 @@ async function handle(req, res) {
   // DELETE /api/profile/facts/:id  -> forget one learned fact (from the profile screen)
   if (req.method === 'DELETE' && parts[0] === 'profile' && parts[1] === 'facts' && parts[2]) {
     return send(res, 200, await db.deleteFact(user.id, parts[2]))
+  }
+
+  // DELETE /api/profile/procedures/:id  -> stop following one learned procedure
+  if (req.method === 'DELETE' && parts[0] === 'profile' && parts[1] === 'procedures' && parts[2]) {
+    return send(res, 200, await db.deleteProcedure(user.id, parts[2]))
   }
 
   // GET /api/profile, PUT /api/profile {name, email, bio}
@@ -311,7 +399,7 @@ async function handle(req, res) {
 
     const t = Date.now()
     const previousReply = chat.messages.findLast((m) => m.role === 'assistant')?.content
-    const ctx = { userId: user.id, chatId: chat.id, facts: user.facts ?? [], memoryRequests: [] }
+    const ctx = { userId: user.id, chatId: chat.id, facts: user.facts ?? [], procedures: user.procedures ?? [], memoryRequests: [], failedQueries: [] }
     // The reply and a speculative memory decision run at the same time, so learning adds no wait.
     const [out, speculative] = await Promise.all([
       answerWithTools({ model, messages: prompt, ctx }),
@@ -344,7 +432,8 @@ async function handle(req, res) {
             modelCalls: out.rounds,
             toolCalls: out.toolCalls,
             factsInPrompt: user.facts?.length ?? 0,
-            memory: mem.changes,           // [{op, id, text, old?, source: 'tool'|'auto'}]
+            proceduresInPrompt: user.procedures?.length ?? 0,
+            memory: mem.changes,           // [{kind: 'fact'|'procedure', op, id, text | when+do, old?, source: 'tool'|'auto'}]
             memoryRequests: ctx.memoryRequests.length,
             memorySkipped: mem.skipped,
             memoryTokens: mem.tokens,

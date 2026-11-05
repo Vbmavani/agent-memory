@@ -12,9 +12,9 @@ real model (DeepSeek) and a real database (Postgres).
 | Short-term | done | The current chat's full history is loaded from Postgres and sent with every message. |
 | Episodic | done | The model can call `search_past_chats` and `list_recent_chats` to look up earlier chats. |
 | Semantic | done | The profile, plus facts the agent learns automatically or when asked ("remember / forget that…"). One memory decision per message (see below), stored in `users.facts`, sent with every request. |
-| Procedural | not yet | Behaviour rules are hard-coded in the system prompt; nothing is learned yet. |
+| Procedural | done | How the user wants the agent to work: routines they teach ("when I say *standup*…"), rules learned from corrections ("too long, give me 3 bullets"), and lessons the agent learns itself (a search that only worked on retry). Stored in `users.procedures` as `{when, do}`, written by the same single memory decision, followed in every chat. |
 
-## How semantic memory is written (`server/memory.js`)
+## How memory is written (`server/memory.js`)
 
 There is exactly **one writer** per message, so two writers can never create overlapping facts
 (for example one adding "User is in France" while another updates "User lives in Lyon").
@@ -29,6 +29,25 @@ There is exactly **one writer** per message, so two writers can never create ove
    since the decision) and near-duplicates ("User likes Thai food!" = "user likes thai food").
 4. Rule given to the model: one fact per attribute, so "lives in Lyon" + "in France" becomes
    "lives in Lyon, France".
+
+## Procedural memory
+
+Facts say **what** is true about the user; procedures say **how** to work for them. Each is a trigger
+and instructions (`when` → `do`), kept one per situation, so refining a routine updates it in place.
+
+- **Taught:** "From now on, when I say 'standup', ask me yesterday / today / blockers one at a time,
+  then write a Slack message." Typing `standup` in any new chat runs the routine.
+- **From corrections:** after a long answer, "Too long. For tech explanations, give me 3 bullets and
+  one example" becomes a rule, so the next explanation, in any chat, follows it. A one-off
+  "make that shorter" saves nothing, and neither do your answers while a routine is running.
+- **Self-learned:** when `search_past_chats` finds nothing and a reworded retry works, the tool result
+  tells the agent, and it records a lesson (`save_procedure` with `self_learned`) so the first
+  search works next time.
+
+The chat model's `save_procedure` / `forget_procedure` tools only record requests, like the fact tools;
+the single memory decision writes facts and procedures together in one locked transaction. The profile
+screen lists every procedure with where it came from (you asked / learned automatically / self-learned)
+and lets you delete it.
 
 ## Tests
 

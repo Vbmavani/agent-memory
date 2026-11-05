@@ -102,3 +102,53 @@ test('requestsToOps turns explicit requests into safe ops (fallback path)', () =
     { op: 'delete', id: 'food', expect: 'User likes Thai food' },
   ])
 })
+
+// ---------- procedural memory ----------
+import { mergeProcedures, requestsToProcOps, MAX_PROCEDURES } from '../server/memory.js'
+
+const procs = () => [
+  { id: 'su', when: "the user says 'standup'", do: 'Ask about yesterday, today and blockers, then write a Slack summary.' },
+]
+
+test('procedure ops: one procedure per trigger, partial updates keep the other field', () => {
+  const ops = validateOps([
+    { op: 'add', when: "The user says 'Standup'!", do: 'Something else' }, // same trigger -> dropped
+    { op: 'add', when: 'explaining a technical concept', do: '' },          // no instructions -> dropped
+    { op: 'add', when: 'explaining a technical concept', do: 'Use 3 bullets and one example.' },
+    { op: 'update', id: 'su', do: 'Ask about mood first, then yesterday, today and blockers.' },
+  ], procs(), 'procedure')
+  assert.deepEqual(ops, [
+    { op: 'add', when: 'explaining a technical concept', do: 'Use 3 bullets and one example.' },
+    { op: 'update', id: 'su', expect: "When the user says 'standup': Ask about yesterday, today and blockers, then write a Slack summary.",
+      when: "the user says 'standup'", do: 'Ask about mood first, then yesterday, today and blockers.' },
+  ])
+})
+
+test('mergeProcedures updates in place, keeps history, and rejects stale writes', () => {
+  const ops = validateOps([{ op: 'update', id: 'su', do: 'Ask about mood first.' }], procs(), 'procedure')
+  const r = mergeProcedures(procs(), ops, opts)
+  assert.equal(r.procedures[0].do, 'Ask about mood first.')
+  assert.equal(r.procedures[0].previous[0], "When the user says 'standup': Ask about yesterday, today and blockers, then write a Slack summary.")
+  const changedMeanwhile = [{ ...procs()[0], do: 'Something newer' }]
+  assert.equal(mergeProcedures(changedMeanwhile, ops, opts).skipped[0].reason, 'stale')
+})
+
+test('mergeProcedures never merges away instructions when a trigger collides', () => {
+  const two = [...procs(), { id: 'wk', when: "the user says 'weekly'", do: 'List open tasks.' }]
+  const ops = validateOps([{ op: 'update', id: 'wk', when: "the user says 'standup'" }], two, 'procedure')
+  const r = mergeProcedures(two, ops, opts)
+  assert.equal(r.procedures.length, 2)
+  assert.equal(r.skipped[0].reason, 'duplicate')
+})
+
+test('mergeProcedures stops at the limit and facts/procedures requests stay separate', () => {
+  const full = Array.from({ length: MAX_PROCEDURES }, (_, i) => ({ id: `p${i}`, when: `trigger ${i}`, do: 'x' }))
+  assert.equal(mergeProcedures(full, [{ op: 'add', when: 'one more', do: 'y' }], opts).skipped[0].reason, 'full')
+  const requests = [
+    { action: 'remember', text: 'User has a dog' },
+    { action: 'learn_procedure', when: 'the user says weekly', do: 'List open tasks.' },
+    { action: 'forget_procedure', id: 'su' },
+  ]
+  assert.deepEqual(requestsToOps(requests, facts()), [{ op: 'add', text: 'User has a dog' }])
+  assert.deepEqual(requestsToProcOps(requests, procs()).map((o) => o.op), ['add', 'delete'])
+})

@@ -1,11 +1,14 @@
 // Live eval of the memory decision against DeepSeek: scripted situations with expected outcomes.
 // Uses no database; it runs decideMemory + mergeFacts in memory.  npm run eval:memory
 // Each case runs RUNS times because model output varies; a case passes only if every run passes.
-import { decideMemory, mergeFacts } from '../server/memory.js'
+import { decideMemory, mergeFacts, mergeProcedures } from '../server/memory.js'
 
 const RUNS = Number(process.env.RUNS ?? 2)
-const user = (facts) => ({ name: 'Test User', email: null, bio: '', facts })
+const user = (facts, procedures = []) => ({ name: 'Test User', email: null, bio: '', facts, procedures })
 const has = (facts, re) => facts.filter((f) => re.test(f.text)).length
+const hasProc = (procs, re) => procs.filter((p) => re.test(`${p.when} ${p.do}`)).length
+const STANDUP = [{ id: 'su', when: "the user says 'standup'", do: 'Ask what they did yesterday, what they will do today and any blockers, one question at a time, then write a short Slack-ready summary.' }]
+const LONG_REPLY = '## How JWT works\n\nA JSON Web Token has three parts: a header, a payload and a signature... ' + 'More detail about claims, signing algorithms, expiry and refresh tokens. '.repeat(25)
 
 const CASES = [
   {
@@ -70,6 +73,56 @@ const CASES = [
     text: "Just so you know, I'm allergic to peanuts.",
     check: (f) => has(f, /peanut/i) === 1,
   },
+  // ---------- procedural memory ----------
+  {
+    name: 'teaching a routine -> one procedure, no facts',
+    facts: [],
+    text: "From now on, when I say 'standup', ask me what I did yesterday, what I'm doing today and any blockers, one at a time, then give me a short Slack message.",
+    check: (f, p) => f.length === 0 && p.length === 1 && /standup/i.test(p[0].when) && /blocker/i.test(p[0].do),
+  },
+  {
+    name: 'correction of how it answered, meant for the future -> procedure, not a fact',
+    facts: [],
+    previousReply: LONG_REPLY,
+    text: 'Too long. For tech explanations, give me 3 bullets and one example.',
+    check: (f, p) => f.length === 0 && p.length === 1 && /3|three/i.test(p[0].do) && /example/i.test(p[0].do),
+  },
+  {
+    name: 'one-off tweak of this answer -> nothing',
+    facts: [],
+    previousReply: LONG_REPLY,
+    text: 'Can you make that one shorter?',
+    check: (f, p) => f.length === 0 && p.length === 0,
+  },
+  {
+    name: 'answers during a running routine -> nothing saved',
+    facts: [],
+    procedures: STANDUP,
+    previousReply: 'Standup time! What did you get done yesterday?',
+    text: 'Fixed the login bug and reviewed two PRs.',
+    check: (f, p) => f.length === 0 && p.length === 1 && p[0].do === STANDUP[0].do,
+  },
+  {
+    name: 'refining a routine -> updated in place, old steps kept',
+    facts: [],
+    procedures: STANDUP,
+    text: 'For standup, also ask how my energy is before the other questions.',
+    check: (f, p) => p.length === 1 && p[0].id === 'su' && /energy/i.test(p[0].do) && /blocker/i.test(p[0].do),
+  },
+  {
+    name: 'stop a routine -> procedure deleted',
+    facts: [],
+    procedures: STANDUP,
+    text: "Let's drop the standup thing, I don't need it anymore.",
+    check: (f, p) => p.length === 0,
+  },
+  {
+    name: 'assistant-recorded lesson -> stored as a procedure',
+    facts: [],
+    text: 'Yes, that was the chat, thanks!',
+    requests: [{ action: 'learn_procedure', when: 'searching past chats', do: 'Search with 2-3 distinctive keywords, not full sentences; if nothing is found, retry with synonyms.' }],
+    check: (f, p) => f.length === 0 && hasProc(p, /keyword/i) === 1,
+  },
 ]
 
 let passed = 0
@@ -77,10 +130,15 @@ let tokens = 0
 for (const c of CASES) {
   const runs = []
   for (let i = 0; i < RUNS; i++) {
-    const d = await decideMemory({ user: user(c.facts), text: c.text, requests: c.requests ?? [] })
+    const d = await decideMemory({ user: user(c.facts, c.procedures ?? []), text: c.text, previousReply: c.previousReply ?? '', requests: c.requests ?? [] })
     tokens += d.tokens
     const { facts } = mergeFacts(c.facts, d.ops)
-    runs.push({ ok: d.ok && c.check(facts), facts: facts.map((f) => f.text), error: d.error })
+    const { procedures } = mergeProcedures(c.procedures ?? [], d.procOps)
+    runs.push({
+      ok: d.ok && c.check(facts, procedures),
+      facts: [...facts.map((f) => f.text), ...procedures.map((p) => `[proc] when ${p.when}: ${p.do}`)],
+      error: d.error,
+    })
   }
   const ok = runs.every((r) => r.ok)
   if (ok) passed++

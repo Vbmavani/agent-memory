@@ -73,8 +73,10 @@ main { flex: 1; overflow: auto; padding: 18px 0; display: flex; flex-direction: 
 .mem.add { border-left: 3px solid var(--good); }
 .mem.upd { border-left: 3px solid var(--accent); }
 .mem.del { border-left: 3px solid var(--bad); }
+.mem.proc b { color: var(--accent); }
 .mem-src { margin-left: 8px; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .mem-src.tool { color: var(--accent); border-color: var(--accent); }
+.mem-src.lesson { color: var(--good); border-color: var(--good); }
 
 /* learned facts in the profile */
 .modal { max-height: calc(100vh - 32px); overflow: auto; }
