@@ -19,3 +19,4 @@ data/
 .vscode/
 .idea/
 .cursor/
+!supabase/migrations/*.sql
