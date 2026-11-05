@@ -53,6 +53,13 @@ function ToolCall({ call }) {
   )
 }
 
+// What semantic memory changed because of this message.
+function MemoryChange({ change }) {
+  if (change.op === 'add') return <div className="mem add">🧠 Remembered: <b>{change.text}</b></div>
+  if (change.op === 'update') return <div className="mem upd">✏️ Updated: <s>{change.old}</s> → <b>{change.text}</b></div>
+  return <div className="mem del">🗑 Forgot: <s>{change.text}</s></div>
+}
+
 function Profile({ user, onSaved, onClose }) {
   const [form, setForm] = useState({ name: user.name, email: user.email ?? '', bio: user.bio ?? '' })
   const [status, setStatus] = useState('')
@@ -87,6 +94,21 @@ function Profile({ user, onSaved, onClose }) {
           <button className="primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
         </div>
         <p className="hint">Stored in the <code>users</code> table in Postgres. Member since {new Date(user.createdAt).toLocaleDateString()}.</p>
+
+        <div className="facts">
+          <h3>What I've learned about you ({user.facts?.length ?? 0})</h3>
+          {!user.facts?.length && <p className="hint">Nothing yet. Tell me about yourself in a chat and I'll remember the parts that matter.</p>}
+          <ul>
+            {(user.facts ?? []).slice().reverse().map((f) => (
+              <li key={f.id}>
+                <span className="fact-text">{f.text}</span>
+                <span className="fact-date">{when(f.updatedAt)}{f.previous?.length ? ` · was: ${f.previous.at(-1)}` : ''}</span>
+                <button type="button" className="del" title="Forget this" aria-label={`Forget: ${f.text}`}
+                  onClick={async () => onSaved(await api(`/profile/facts/${f.id}`, { method: 'DELETE' }))}>×</button>
+              </li>
+            ))}
+          </ul>
+        </div>
       </form>
     </div>
   )
@@ -154,6 +176,7 @@ export default function App() {
       setChat(c)
       store.set(c.id)
       refreshList()
+      if (c.messages.at(-1)?.meta?.memory?.length) api('/profile').then(setUser).catch(() => {})
     } catch (err) {
       setError(err.message)
       setInput(text) // give the text back so it isn't lost
@@ -212,9 +235,10 @@ export default function App() {
             <div key={i} className={`msg ${m.role}`}>
               {m.role === 'assistant' ? <div className="md"><Markdown>{m.content}</Markdown></div> : m.content}
               {m.meta?.toolCalls?.map((t, j) => <ToolCall key={j} call={t} />)}
+              {m.meta?.memory?.map((c, j) => <MemoryChange key={`m${j}`} change={c} />)}
               {m.meta && (
                 <div className="meta">
-                  {m.meta.model} · {m.meta.profile ? `profile: ${m.meta.profile} · ` : ''}{m.meta.contextMessages} msgs of context ·{m.meta.modelCalls > 1 ? ` ${m.meta.modelCalls} model calls ·` : ''} {m.meta.promptTokens} in / {m.meta.outTokens} out tokens · {(m.meta.ms / 1000).toFixed(1)}s
+                  {m.meta.model} · {m.meta.profile ? `profile: ${m.meta.profile} · ` : ''}{m.meta.factsInPrompt != null ? `${m.meta.factsInPrompt} facts · ` : ''}{m.meta.contextMessages} msgs of context ·{m.meta.modelCalls > 1 ? ` ${m.meta.modelCalls} model calls ·` : ''} {m.meta.promptTokens} in / {m.meta.outTokens} out tokens · {(m.meta.ms / 1000).toFixed(1)}s
                 </div>
               )}
             </div>

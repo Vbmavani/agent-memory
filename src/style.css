@@ -68,6 +68,22 @@ main { flex: 1; overflow: auto; padding: 18px 0; display: flex; flex-direction: 
 .tool-chat { font-weight: 600; }
 .tool-date { color: var(--muted); margin-left: 6px; font-size: 12px; }
 .tool-snip { color: var(--muted); font-size: 12.5px; }
+.mem { margin-top: 6px; font-size: 13px; padding: 5px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
+.mem b { color: var(--ink); font-weight: 600; }
+.mem.add { border-left: 3px solid var(--good); }
+.mem.upd { border-left: 3px solid var(--accent); }
+.mem.del { border-left: 3px solid var(--bad); }
+
+/* learned facts in the profile */
+.modal { max-height: calc(100vh - 32px); overflow: auto; }
+.facts { border-top: 1px solid var(--line); padding-top: 12px; }
+.facts h3 { margin: 0 0 8px; font-size: 14px; }
+.facts ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.facts li { display: grid; grid-template-columns: 1fr auto; align-items: center; column-gap: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 4px 6px 10px; }
+.fact-text { font-size: 14px; }
+.fact-date { grid-column: 1; font-size: 12px; color: var(--muted); }
+.facts .del { grid-row: 1 / span 2; grid-column: 2; background: none; border: 0; color: var(--muted); font-size: 16px; padding: 4px 8px; }
+.facts .del:hover { color: var(--bad); }
 .meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .error { background: var(--badbg); color: var(--bad); padding: 8px 12px; border-radius: 8px; font-size: 13.5px; }
 .composer { display: flex; gap: 8px; padding: 14px 0; }

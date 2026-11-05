@@ -1,5 +1,5 @@
 // Postgres storage. Exactly two tables:
-//   users  - the profile (name, email, bio)
+//   users  - the profile (name, email, bio) + `facts`: semantic memory the agent learned (jsonb array)
 //   chats  - one row per chat session; its full history lives in `messages` (jsonb array)
 // Local default: database "deepseek_playground" on localhost:5432 as the current macOS user
 // (Postgres.app). Override with DATABASE_URL.
@@ -29,12 +29,14 @@ export function init() {
       updated_at  timestamptz NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS chats_user_updated_idx ON chats (user_id, updated_at DESC);
+    -- semantic memory: [{id, text, createdAt, updatedAt, source: {chatId}, previous: [older texts]}]
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS facts jsonb NOT NULL DEFAULT '[]';
   `).catch((e) => { ready = null; throw e })
   return ready
 }
 
 // ---------- users ----------
-const USER_COLS = 'id, name, email, bio, created_at AS "createdAt", updated_at AS "updatedAt"'
+const USER_COLS = 'id, name, email, bio, facts, created_at AS "createdAt", updated_at AS "updatedAt"'
 
 // Single-user local app: the profile is the oldest user row (created on first run).
 export async function currentUser() {
@@ -50,6 +52,53 @@ export async function updateUser(id, { name, email, bio }) {
     `UPDATE users SET name = $2, email = $3, bio = $4, updated_at = now()
      WHERE id = $1 RETURNING ${USER_COLS}`,
     [id, name, email || null, bio ?? ''])
+  return u
+}
+
+// ---------- semantic memory: learned facts about the user ----------
+const MAX_FACTS = 100
+
+// Apply add/update/delete operations to the user's facts in one transaction.
+// Returns what actually changed, for the UI: [{op, text, old?}].
+export async function applyFactOps(userId, ops, source) {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const { rows: [row] } = await client.query('SELECT facts FROM users WHERE id = $1 FOR UPDATE', [userId])
+    const facts = row?.facts ?? []
+    const now = new Date().toISOString()
+    const changed = []
+    for (const o of ops) {
+      const i = facts.findIndex((f) => f.id === o.id)
+      if (o.op === 'add' && facts.length < MAX_FACTS && !facts.some((f) => f.text.toLowerCase() === o.text.toLowerCase())) {
+        facts.push({ id: Math.random().toString(36).slice(2, 10), text: o.text, createdAt: now, updatedAt: now, source })
+        changed.push({ op: 'add', text: o.text })
+      } else if (o.op === 'update' && i >= 0 && facts[i].text !== o.text) {
+        const old = facts[i].text
+        facts[i] = { ...facts[i], text: o.text, updatedAt: now, source, previous: [...(facts[i].previous ?? []), old].slice(-5) }
+        changed.push({ op: 'update', text: o.text, old })
+      } else if (o.op === 'delete' && i >= 0) {
+        changed.push({ op: 'delete', text: facts[i].text })
+        facts.splice(i, 1)
+      }
+    }
+    if (changed.length) await client.query('UPDATE users SET facts = $2 WHERE id = $1', [userId, JSON.stringify(facts)])
+    await client.query('COMMIT')
+    return changed
+  } catch (e) {
+    await client.query('ROLLBACK')
+    throw e
+  } finally {
+    client.release()
+  }
+}
+
+// The user removes a fact by hand ("forget this").
+export async function deleteFact(userId, factId) {
+  const { rows: [u] } = await pool.query(
+    `UPDATE users SET facts = coalesce(
+       (SELECT jsonb_agg(f) FROM jsonb_array_elements(facts) f WHERE f->>'id' <> $2), '[]')
+     WHERE id = $1 RETURNING ${USER_COLS}`, [userId, factId])
   return u
 }
 

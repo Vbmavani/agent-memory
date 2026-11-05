@@ -25,11 +25,13 @@ function systemPrompt(user) {
   if (user.email) lines.push(`- Email: ${user.email}`)
   if (user.bio) lines.push(`- About them: ${user.bio}`)
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const facts = (user.facts ?? []).map((f) => `- ${f.text}`)
   return `${SYSTEM}
 
 You are talking to this user (from their saved profile):
 ${lines.join('\n')}
-Use this naturally when it helps (e.g. greet them by name). If they ask what you know about them, tell them.
+${facts.length ? `\nThings you have learned about them in earlier conversations (newest knowledge wins):\n${facts.join('\n')}\n` : ''}
+Use this naturally when it helps (e.g. greet them by name, respect allergies and preferences). If they ask what you know about them, tell them.
 
 Today is ${today}.
 
@@ -89,6 +91,69 @@ async function runTool(name, args, { userId, chatId }) {
     return { days, count: chats.length, chats }
   }
   return { error: `Unknown tool ${name}` }
+}
+
+// ---------- semantic memory: learn durable facts about the user ----------
+// A second, cheap model call per message (runs in parallel with the reply). It sees the facts
+// we already have and the user's new message, and decides add / update / delete (Mem0-style),
+// so "I moved to Berlin" UPDATES "Lives in Pune" instead of storing both.
+const EXTRACT_MODEL = 'deepseek-flash'
+const EXTRACT_PROMPT = `You maintain the long-term memory of an assistant: short facts about the USER that will still
+matter in future conversations (who they are, where they live, work, family, pets, health/allergies,
+diet, goals, plans, strong likes and dislikes, recurring situations).
+
+You get the EXISTING facts (with ids), the user's PROFILE, the assistant's PREVIOUS reply (context only),
+and the user's NEW message. Return json: {"operations": [...]} where each operation is one of
+  {"op": "add", "text": "<fact>"}
+  {"op": "update", "id": "<existing id>", "text": "<corrected fact>"}   (the new message changes or refines it)
+  {"op": "delete", "id": "<existing id>"}                              (the user says it is no longer true)
+
+Rules:
+- Only facts the USER states or clearly confirms about themselves. Never facts from the assistant's words alone.
+- Questions, greetings, small talk, one-off moods, the weather, and requests for help -> {"operations": []}.
+- Do not repeat what the PROFILE or EXISTING facts already say. Prefer update over add when it is the same topic.
+- Each fact: one short sentence in third person, starting with "User", e.g. "User is allergic to peanuts".
+- When in doubt, do nothing.
+
+Examples:
+EXISTING: [] | NEW: "what's the capital of France?" -> {"operations": []}
+EXISTING: [] | NEW: "ugh, so tired today lol" -> {"operations": []}
+EXISTING: [{"id":"a1","text":"User lives in Pune"}] | NEW: "I just moved to Berlin and started at Zalando"
+  -> {"operations": [{"op":"update","id":"a1","text":"User lives in Berlin"},{"op":"add","text":"User works at Zalando"}]}
+EXISTING: [{"id":"b2","text":"User has a dog called Max"}] | NEW: "Max passed away last month"
+  -> {"operations": [{"op":"update","id":"b2","text":"User's dog Max passed away"}]}`
+
+async function extractFacts(user, text, previousReply) {
+  const existing = (user.facts ?? []).map(({ id, text }) => ({ id, text }))
+  const profile = { name: user.name, email: user.email, about: user.bio }
+  const { status, data } = await deepseek('/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({
+      model: EXTRACT_MODEL,
+      temperature: 0,
+      max_tokens: 400,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: EXTRACT_PROMPT },
+        {
+          role: 'user',
+          content: `EXISTING: ${JSON.stringify(existing)}\nPROFILE: ${JSON.stringify(profile)}\n` +
+            `PREVIOUS ASSISTANT REPLY: ${JSON.stringify((previousReply ?? '').slice(0, 500))}\nNEW MESSAGE: ${JSON.stringify(text)}`,
+        },
+      ],
+    }),
+  })
+  if (status !== 200) return { ops: [], tokens: 0 }
+  let ops = []
+  try { ops = JSON.parse(data.choices?.[0]?.message?.content ?? '{}').operations ?? [] } catch {}
+  const ids = new Set(existing.map((f) => f.id))
+  const clean = (s) => String(s ?? '').trim().slice(0, 200)
+  ops = ops.filter((o) =>
+    (o?.op === 'add' && clean(o.text)) ||
+    (o?.op === 'update' && ids.has(o.id) && clean(o.text)) ||
+    (o?.op === 'delete' && ids.has(o.id)),
+  ).map((o) => ({ op: o.op, id: o.id, text: clean(o.text) }))
+  return { ops, tokens: (data.usage?.prompt_tokens ?? 0) + (data.usage?.completion_tokens ?? 0) }
 }
 
 // ---------- key + DeepSeek ----------
@@ -192,8 +257,13 @@ async function handle(req, res) {
     return send(res, status, status === 200 ? { models: data.data.map((m) => m.id) } : data)
   }
 
+  // DELETE /api/profile/facts/:id  -> forget one learned fact
+  if (req.method === 'DELETE' && parts[0] === 'profile' && parts[1] === 'facts' && parts[2]) {
+    return send(res, 200, await db.deleteFact(user.id, parts[2]))
+  }
+
   // GET /api/profile, PUT /api/profile {name, email, bio}
-  if (parts[0] === 'profile') {
+  if (parts[0] === 'profile' && !parts[1]) {
     if (req.method === 'GET') return send(res, 200, user)
     if (req.method === 'PUT') {
       const { name, email, bio } = await readJson(req)
@@ -244,8 +314,14 @@ async function handle(req, res) {
     ]
 
     const t = Date.now()
-    const out = await answerWithTools({ model, messages: prompt, ctx: { userId: user.id, chatId: chat.id } })
+    const previousReply = chat.messages.findLast((m) => m.role === 'assistant')?.content
+    // Reply and memory extraction run at the same time, so learning adds almost no wait.
+    const [out, learned] = await Promise.all([
+      answerWithTools({ model, messages: prompt, ctx: { userId: user.id, chatId: chat.id } }),
+      extractFacts(user, text, previousReply).catch(() => ({ ops: [], tokens: 0 })),
+    ])
     if (out.status !== 200) return send(res, out.status, out.data) // nothing saved if the call failed
+    const memory = learned.ops.length ? await db.applyFactOps(user.id, learned.ops, { chatId: chat.id }) : []
 
     const now = new Date().toISOString()
     const saved = await db.saveTurn({
@@ -267,6 +343,9 @@ async function handle(req, res) {
             profile: user.name,
             modelCalls: out.rounds,
             toolCalls: out.toolCalls,
+            factsInPrompt: user.facts?.length ?? 0,
+            memory,                       // what semantic memory changed: [{op, text, old?}]
+            memoryTokens: learned.tokens, // cost of the extraction call
           },
         },
       ],
