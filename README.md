@@ -49,10 +49,30 @@ the single memory decision writes facts and procedures together in one locked tr
 screen lists every procedure with where it came from (you asked / learned automatically / self-learned)
 and lets you delete it.
 
+## Tools the model can call
+
+| Tool | Memory type | What it is | Used for |
+|---|---|---|---|
+| `search_past_chats` | Episodic | Full-text search over earlier chats, with surrounding messages | "What did I tell you about…", "last time…" |
+| `list_recent_chats` | Episodic | Chats from the last N days with title, dates, first message | "What did we talk about this week?" |
+| `remember_fact` | Semantic | Records a request to save or correct a fact (never writes itself) | "Remember that…", "correct that…" |
+| `forget_fact` | Semantic | Records a request to delete a fact by id | "Forget that…" |
+| `save_procedure` | Procedural | Records a routine or rule as `when` + `do`, optionally `self_learned` | Taught routines, rules from corrections, the agent's own lessons |
+| `forget_procedure` | Procedural | Records a request to stop following a procedure | "Stop doing the standup thing" |
+
+Lookup tools run straight away. Memory tools only record requests; the single memory decision after
+the reply writes them. Every message also gets a background memory decision that is not a tool.
+
+## Docs
+
+- [Tools](docs/tools.md): every tool, the two kinds of tools, the background decision, self-learned lessons
+- [How one message works](docs/how-a-message-works.md): the 4 model calls, the single writer, the
+  locked database write, source tags, and company rules vs user procedures
+
 ## Tests
 
 ```bash
-npm test             # unit tests (pure memory logic); database tests run only with TEST_DATABASE_URL
+npm test             # unit tests (pure memory logic for facts and procedures); database tests run only with TEST_DATABASE_URL
                      # pointing at a separate, disposable database (never the real one)
 npm run eval:memory  # live eval: scripted memory scenarios against DeepSeek (needs the API key)
 ```
@@ -62,7 +82,7 @@ npm run eval:memory  # live eval: scripted memory scenarios against DeepSeek (ne
 - Vite + React frontend (`src/`)
 - Server routes as a Vite dev-server plugin (`server/api.js`), so the API key never reaches the browser
 - Supabase (Postgres) with two tables (`server/db.js`, schema in `supabase/migrations/`):
-  - `users`: the profile, plus learned facts in a `facts` jsonb column
+  - `users`: the profile, plus learned facts (`facts`) and procedures (`procedures`) as jsonb columns
   - `chats`: one row per chat, with its full history in a `messages` jsonb column
 - Row Level Security is on for both tables, so Supabase's public REST API exposes nothing.
   The app connects over SSL with its own login, `agent_memory_app`, which can only read and
