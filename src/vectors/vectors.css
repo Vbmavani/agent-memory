@@ -1,0 +1,73 @@
+:root {
+  --bg: #f6f6f3; --panel: #fff; --ink: #1c1c1a; --muted: #6d6c66; --line: #e3e2dc;
+  --accent: #3b5bdb; --good: #2f7d4f; --warn: #c2620a; --bad: #b3261e; --code: #f0efea;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151514; --panel: #1f1f1d; --ink: #ecebe6; --muted: #9a998f; --line: #33322e;
+    --accent: #7c95f5; --good: #7cc79a; --warn: #f0a35c; --bad: #f2a29b; --code: #2a2a27;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+button, input { font: inherit; color: var(--ink); }
+button { cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+
+.page { max-width: 1080px; margin: 0 auto; padding: 20px 16px 48px; display: flex; flex-direction: column; gap: 16px; }
+header h1 { margin: 6px 0 6px; font-size: 26px; letter-spacing: -.01em; }
+.lead { margin: 0; max-width: 760px; color: var(--muted); }
+.lead b { color: var(--ink); }
+.back { color: var(--accent); text-decoration: none; font-size: 14px; }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
+.card h2 { margin: 0 0 8px; font-size: 16px; }
+.hint { color: var(--muted); font-size: 13px; font-weight: 400; margin: 0 0 10px; }
+h2 .hint { margin-left: 6px; }
+
+.a { color: var(--accent); font-weight: 700; }
+.b { color: var(--good); font-weight: 700; }
+.w { color: var(--warn); font-weight: 700; }
+
+.space-wrap { display: flex; justify-content: center; }
+.space { touch-action: none; cursor: grab; display: block; }
+.space:active { cursor: grabbing; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 8px 0 0; font-size: 14px; justify-content: center; }
+
+.ranks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ranks button { width: 100%; display: grid; grid-template-columns: 96px 1fr 44px; gap: 10px; align-items: center; background: none; border: 1px solid transparent; border-radius: 8px; padding: 4px 8px; text-align: left; }
+.ranks button:hover { background: var(--bg); }
+.ranks button.on { border-color: var(--good); background: var(--bg); }
+.rname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar { height: 10px; background: var(--bg); border-radius: 999px; overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.score, .num { font-variant-numeric: tabular-nums; text-align: right; }
+
+.math pre { background: var(--code); border-radius: 10px; padding: 12px 14px; overflow-x: auto; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0 0 10px; }
+.verdict { margin: 0; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: right; color: var(--muted); font-weight: 600; font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+th:first-child { text-align: left; }
+td { padding: 3px 6px; border-bottom: 1px solid var(--line); }
+tr { cursor: pointer; }
+tr:hover td { background: var(--bg); }
+tr.sel td { background: var(--bg); }
+tr.sel .link { color: var(--accent); font-weight: 700; }
+.link { background: none; border: 0; padding: 0; color: var(--ink); }
+.del { background: none; border: 0; color: var(--muted); font-size: 16px; padding: 0 4px; }
+.del:hover { color: var(--bad); }
+.ghost { background: none; border: 0; color: var(--accent); padding: 8px 0 0; }
+
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.field input { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--bg); }
+.slider { display: grid; grid-template-columns: 60px 1fr 40px; gap: 10px; align-items: center; font-size: 14px; margin-bottom: 6px; }
+.slider input { width: 100%; accent-color: var(--warn); }
+.vec { font-family: ui-monospace, Menlo, monospace; font-size: 13px; margin: 8px 0; }
+.primary { background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 0 18px; font-weight: 600; min-height: 40px; }
+
+.notes ul { margin: 0 0 14px; padding-left: 20px; }
+.notes li { margin-bottom: 4px; }
+.notes p { margin: 0; max-width: 780px; }

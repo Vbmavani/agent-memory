@@ -49,6 +49,14 @@ the single memory decision writes facts and procedures together in one locked tr
 screen lists every procedure with where it came from (you asked / learned automatically / self-learned)
 and lets you delete it.
 
+## Vectors lab
+
+Open http://localhost:9200/vectors.html (or **Vectors lab** in the chat header). Every word is just
+3 hand-written numbers: how much it is an animal, how much it is food, how big it is. The page draws
+each word as an arrow in 3D, ranks the closest words by cosine similarity, shows the math step by
+step, and lets you make your own word with sliders. No model is involved, so every number can be
+checked on paper. It is the first step toward vector (embedding) memory. Math in `src/vectors/math.js`.
+
 ## Tools the model can call
 
 | Tool | Memory type | What it is | Used for |
