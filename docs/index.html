@@ -139,6 +139,7 @@
         <tr><td><b>Episodic</b></td><td>Past conversations</td><td><code>search_past_chats</code>: by words (step 1), by meaning (step 2)</td><td>done</td></tr>
         <tr><td><b>Semantic</b></td><td>Lasting facts about the user</td><td><code>users.facts</code>, written by one memory decision per message</td><td>done</td></tr>
         <tr><td><b>Procedural</b></td><td>How the user wants the agent to work</td><td><code>users.procedures</code>: routines, rules, self-learned lessons</td><td>done</td></tr>
+        <tr><td><b>Graph</b></td><td>Connections between people, places and things</td><td><code>users.edges</code>, walked with a recursive Postgres query; <a href="learn/?p=app-graph">how it works</a></td><td>done</td></tr>
         <tr><td><b>Vector</b></td><td>Search by meaning, then mem0</td><td><code>chats.embedding</code>, 384 numbers per chat, pgvector</td><td>steps 2 and 3 (mem0) done</td></tr>
       </tbody>
     </table>

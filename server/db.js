@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import pg from 'pg'
 import { mergeFacts, mergeProcedures } from './memory.js'
+import { mergeEdges } from './graph.js'
 
 function databaseUrl() {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL
@@ -80,6 +81,8 @@ const SCHEMA_SQL = `
     ALTER TABLE users ADD COLUMN IF NOT EXISTS facts jsonb NOT NULL DEFAULT '[]';
     -- procedural memory: [{id, when, do, createdAt, updatedAt, source, previous}]
     ALTER TABLE users ADD COLUMN IF NOT EXISTS procedures jsonb NOT NULL DEFAULT '[]';
+    -- graph memory: connections between people, places and things (see server/graph.js)
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS edges jsonb NOT NULL DEFAULT '[]';
     -- several users log in by username, so names are unique (ignoring case)
     CREATE UNIQUE INDEX IF NOT EXISTS users_name_lower_idx ON users (lower(name));
     -- step 2 of past-chat search: one embedding (384 numbers) per chat, searched by meaning
@@ -92,7 +95,7 @@ const SCHEMA_SQL = `
 `
 
 // ---------- users ----------
-const USER_COLS = 'id, name, email, bio, facts, procedures, created_at AS "createdAt", updated_at AS "updatedAt"'
+const USER_COLS = 'id, name, email, bio, facts, procedures, edges, created_at AS "createdAt", updated_at AS "updatedAt"'
 
 // Several users, chosen by username (see /api/login). Without a logged-in id, the default user is
 // the oldest row (created on first run), so scripts and old sessions keep working.
@@ -174,7 +177,61 @@ async function removeItem(userId, column, itemId) {
   return u
 }
 export const deleteFact = (userId, id) => removeItem(userId, 'facts', id)
+export const deleteEdge = (userId, id) => removeItem(userId, 'edges', id)
 export const deleteProcedure = (userId, id) => removeItem(userId, 'procedures', id)
+
+// ---------- graph memory (server/graph.js) ----------
+// Add the connections found in one message, in one locked transaction like applyMemoryOps.
+export async function applyGraphTriples(userId, triples, source = {}) {
+  if (!triples.length) return []
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const { rows: [row] } = await client.query('SELECT edges FROM users WHERE id = $1 FOR UPDATE', [userId])
+    const r = mergeEdges(row?.edges ?? [], triples, source)
+    if (r.changed.length) await client.query('UPDATE users SET edges = $2 WHERE id = $1', [userId, JSON.stringify(r.edges)])
+    await client.query('COMMIT')
+    return r.changed
+  } catch (e) {
+    await client.query('ROLLBACK')
+    throw e
+  } finally {
+    client.release()
+  }
+}
+
+// WALK THE GRAPH with plain Postgres: a recursive query (WITH RECURSIVE).
+//   edges : the edges unpacked from the jsonb column, one row each (only the ones still true,
+//           unless $4 asks for history too)
+//   walk  : starts at the first node (depth 0), then repeatedly steps along any edge touching a node
+//           it has reached (depth + 1), never back onto a node already on its path (so loops end),
+//           and stops at $3 hops. Edges are followed in both directions.
+//   last SELECT: every edge the walk touched, with the hop at which it was first reached.
+export const WALK_SQL = `WITH RECURSIVE edges AS (
+  SELECT e->>'id' AS id, e->>'from' AS "from", e->>'fromKey' AS fk, e->>'rel' AS rel,
+         e->>'to' AS "to", e->>'toKey' AS tk, e->>'since' AS since, e->>'until' AS until
+  FROM users u, jsonb_array_elements(u.edges) AS e
+  WHERE u.id = $1 AND ($4::boolean OR e->>'until' IS NULL)
+),
+walk(node, depth, path) AS (
+  SELECT $2::text, 0, ARRAY[$2::text]
+  UNION ALL
+  SELECT n.next, w.depth + 1, w.path || n.next
+  FROM walk w
+  JOIN edges e ON e.fk = w.node OR e.tk = w.node
+  CROSS JOIN LATERAL (SELECT CASE WHEN e.fk = w.node THEN e.tk ELSE e.fk END AS next) n
+  WHERE w.depth < $3 AND NOT n.next = ANY (w.path)
+)
+SELECT e.id, e."from", e.rel, e."to", e.since, e.until, min(w.depth) + 1 AS hop
+FROM walk w JOIN edges e ON e.fk = w.node OR e.tk = w.node
+WHERE w.depth < $3
+GROUP BY e.id, e."from", e.rel, e."to", e.since, e.until
+ORDER BY hop, e.since`
+
+export async function walkGraph(userId, startKey, hops = 2, { history = false } = {}) {
+  const { rows } = await pool.query(WALK_SQL, [userId, startKey, Math.min(4, Math.max(1, hops)), history])
+  return rows.map((r) => ({ ...r, hop: Number(r.hop) }))
+}
 
 // ---------- chats ----------
 const CHAT_COLS = 'id, title, messages, created_at AS "createdAt", updated_at AS "updatedAt"'

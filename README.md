@@ -21,6 +21,15 @@ searched, my thinking process, every question I asked, and every explainer I mad
 The site's source is [`docs/`](docs/) (published by `.github/workflows/pages.yml`). The **Vectors lab**
 runs inside the app at http://localhost:9200/vectors.html (see [Vectors lab](#vectors-lab)).
 
+## Graph memory
+
+Facts are sentences; a graph keeps connections: *You –managed_by→ Ana –lives_in→ Paris*. After each
+message a small model call extracts `(from, relation, to)` triples, plain code merges them into
+`users.edges` (one jsonb column, still two tables; an old value closes its edge, nothing is deleted),
+and the chat model can call `explore_graph` to **walk** the graph. The walk is a recursive Postgres
+query (`WITH RECURSIVE`), no extension. Tick **Compare vector vs graph** in the chat header to see both answers side by side. Try it in the **Graph lab** (http://localhost:9200/graph.html)
+and read [docs/graph.md](docs/graph.md). `GRAPH_MEMORY=off` turns it off.
+
 ## Users and the Search menu
 
 - **Several users.** In the sidebar, *Switch user* lists everyone and lets you log in by typing a

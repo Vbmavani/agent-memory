@@ -82,6 +82,8 @@ const MATCH_TITLE = {
 function ToolCall({ call }) {
   const label = call.name === 'search_past_chats'
     ? <>Searched past chats for <b>“{call.args.query}”</b>{call.mode && <span className="tool-mode"> by {MODE_LABEL[call.mode]}</span>}</>
+    : call.name === 'explore_graph'
+      ? <>Walked the graph from <b>{call.args.entity}</b> <span className="tool-mode">· {call.args.hops ?? 2} hops</span></>
     : call.name === 'auto_recall'
       ? <>Recalled related {call.mode === 'mem0' ? 'memories' : 'chats'} <span className="tool-mode">automatically, {call.mode === 'mem0' ? 'from mem0' : 'by meaning'}</span></>
     : call.name === 'list_recent_chats'
@@ -90,7 +92,7 @@ function ToolCall({ call }) {
   return (
     <details className="tool">
       <summary>
-        <span className="tool-icon" aria-hidden>{{ search_past_chats: '🔎', auto_recall: '🧭' }[call.name] ?? '🗂'}</span>
+        <span className="tool-icon" aria-hidden>{{ search_past_chats: '🔎', auto_recall: '🧭', explore_graph: '🕸' }[call.name] ?? '🗂'}</span>
         {label} · {call.error ? <span className="tool-err">{call.error}</span> : `${call.count} found`}
       </summary>
       {call.found?.length > 0 && (
@@ -121,6 +123,12 @@ function MemoryChange({ change }) {
     : change.source === 'lesson'
       ? <span className="mem-src lesson" title="The assistant learned this from its own experience">self-learned</span>
       : <span className="mem-src" title="Saved by the background memory extractor">automatic</span>
+  if (change.kind === 'graph') {
+    const edge = <><b>{change.from}</b> —{change.rel}→ <b>{change.to}</b></>
+    return change.op === 'add'
+      ? <div className="mem add graph">🕸 Connected: {edge}{tag}</div>
+      : <div className="mem del graph">✂️ No longer true: <s>{edge}</s>{tag}</div>
+  }
   if (change.kind === 'procedure') {
     if (change.op === 'add') return <div className="mem add proc">📘 Learned how to work: <b>when {change.when}</b> → {change.do}{tag}</div>
     if (change.op === 'update') return <div className="mem upd proc">📘 Updated routine: <b>when {change.when}</b> → {change.do}{tag}</div>
@@ -129,6 +137,49 @@ function MemoryChange({ change }) {
   if (change.op === 'add') return <div className="mem add">🧠 Remembered: <b>{change.text}</b>{tag}</div>
   if (change.op === 'update') return <div className="mem upd">✏️ Updated: <s>{change.old}</s> → <b>{change.text}</b>{tag}</div>
   return <div className="mem del">🗑 Forgot: <s>{change.text}</s>{tag}</div>
+}
+
+// Compare mode: the same question answered by vector memory (left) and graph memory (right), in parallel.
+function CompareSide({ title, sub, side, tint }) {
+  if (!side) return null
+  return (
+    <div className={`cmp-col ${tint}`}>
+      <div className="cmp-title">{title}<span>{sub}</span></div>
+      {side.error
+        ? <p className="cmp-err">{side.error}</p>
+        : <>
+            <div className="md"><Markdown>{side.answer || '(no answer)'}</Markdown></div>
+            {side.toolCalls?.map((t, j) => <ToolCall key={j} call={t} />)}
+            <div className="meta">{side.modelCalls} model call{side.modelCalls === 1 ? '' : 's'} · {side.promptTokens} in / {side.outTokens} out tokens · {(side.ms / 1000).toFixed(1)}s</div>
+          </>}
+    </div>
+  )
+}
+
+function CompareLog({ rounds, pending, logRef }) {
+  return (
+    <main ref={logRef} className="cmp">
+      {!rounds.length && !pending && (
+        <p className="empty">Compare mode. Ask a question and two answers come back at the same time: <b>vector memory</b> on the left (your past chats, found by meaning) and <b>graph memory</b> on the right (connections walked hop by hop). Nothing here is saved. Build memory first by chatting normally, then ask here.</p>
+      )}
+      {rounds.map((r, i) => (
+        <div key={i} className="cmp-round">
+          <div className="msg user">{r.q}</div>
+          <div className="cmp-cols">
+            <CompareSide title="Vector memory" sub="past chats, found by meaning" side={r.vector} tint="vec" />
+            <CompareSide title="Graph memory" sub="connections, walked hop by hop" side={r.graph} tint="gr" />
+          </div>
+        </div>
+      ))}
+      {pending && <>
+        <div className="msg user">{pending}</div>
+        <div className="cmp-cols">
+          <div className="cmp-col vec"><div className="cmp-title">Vector memory<span>…searching past chats</span></div></div>
+          <div className="cmp-col gr"><div className="cmp-title">Graph memory<span>…walking the graph</span></div></div>
+        </div>
+      </>}
+    </main>
+  )
 }
 
 function Profile({ user, onSaved, onClose }) {
@@ -212,6 +263,9 @@ export default function App() {
   const [error, setError] = useState('')
   const [drawer, setDrawer] = useState(false)
   const [searchMode, setSearchMode] = useState(savedMode)
+  const [compare, setCompare] = useState(false)   // Compare mode: vector answer vs graph answer
+  const [withFacts, setWithFacts] = useState(false)
+  const [rounds, setRounds] = useState([])
   const logRef = useRef(null)
   const inputRef = useRef(null)
 
@@ -258,6 +312,18 @@ export default function App() {
     setInput('')
     setPending(text)
     setError('')
+    if (compare) {
+      try {
+        const r = await api('/compare', json('POST', { model, content: text, withFacts }))
+        setRounds((rs) => [...rs, { q: text, ...r }])
+      } catch (err) {
+        setError(err.message)
+        setInput(text)
+      } finally {
+        setPending(null)
+      }
+      return
+    }
     try {
       const c = await api(`/chats/${chat?.id ?? 'new'}/messages`, json('POST', { model, content: text, searchMode }))
       setChat(c)
@@ -274,6 +340,7 @@ export default function App() {
 
   function switchUser(u) {
     setUser(u)
+    setRounds([])
     setChat(null)
     store.set(null)
     setError('')
@@ -319,10 +386,19 @@ export default function App() {
           <button className="ghost menu" onClick={() => setDrawer(true)}>☰ Chats</button>
           <h1>DeepSeek <span>Playground</span></h1>
           <a className="ghost lab-link" href="/vectors.html">Vectors lab</a>
+          <a className="ghost lab-link" href="/graph.html">Graph lab</a>
           <a className="ghost lab-link" href="https://vbmavani.github.io/agent-memory/" target="_blank" rel="noopener">Learning site ↗</a>
+          <label className="cmp-toggle" title="Ask once, get a vector answer and a graph answer side by side">
+            <input id="compare-toggle" type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} /> Compare vector vs graph
+          </label>
+          {compare && (
+            <label title="Also give both sides the saved facts (off = memory type only)">
+              <input id="compare-facts" type="checkbox" checked={withFacts} onChange={(e) => setWithFacts(e.target.checked)} /> with saved facts
+            </label>
+          )}
           <label>
             Search
-            <select id="search-mode" value={searchMode} onChange={(e) => pickMode(e.target.value)}>
+            <select id="search-mode" value={searchMode} onChange={(e) => pickMode(e.target.value)} disabled={compare}>
               {SEARCH_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </label>
@@ -334,7 +410,8 @@ export default function App() {
           </label>
         </header>
 
-        <main ref={logRef}>
+        {compare && <CompareLog rounds={rounds} pending={pending} logRef={logRef} />}
+        {!compare && <main ref={logRef}>
           {!messages.length && !pending && (
             <p className="empty">
               {user ? <>Hi {user.name}. </> : null}Start a chat. Every message is sent to the model together with this chat's previous history, and everything is saved in Postgres.
@@ -356,7 +433,7 @@ export default function App() {
             <div className="msg user">{pending}</div>
             <div className="msg assistant thinking">…thinking (may search your past chats)</div>
           </>}
-        </main>
+        </main>}
 
         {error && <div className="error">{error}</div>}
 

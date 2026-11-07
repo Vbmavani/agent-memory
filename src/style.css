@@ -78,6 +78,8 @@ main { flex: 1; overflow: auto; padding: 18px 0; display: flex; flex-direction: 
 .match { margin-left: 6px; font-size: 11px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-variant-numeric: tabular-nums; }
 .match.meaning { color: var(--accent); border-color: var(--accent); }
 .match.both { color: var(--good); border-color: var(--good); }
+.match.graph { color: #1d8a8a; border-color: #1d8a8a; }
+.mem.graph b { font-weight: 600; }
 .match.mem0 { color: #8a55c9; border-color: #8a55c9; }
 .tool-snip { color: var(--muted); font-size: 12.5px; }
 .mem { margin-top: 6px; font-size: 13px; padding: 5px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
@@ -126,3 +128,16 @@ main { flex: 1; overflow: auto; padding: 18px 0; display: flex; flex-direction: 
   .menu { display: inline-block; }
   .msg { max-width: 88%; }
 }
+
+/* Compare mode: vector answer (left) vs graph answer (right) */
+.cmp-toggle { font-weight: 600; color: var(--ink); }
+main.cmp { display: flex; flex-direction: column; gap: 14px; }
+.cmp-round { display: flex; flex-direction: column; gap: 8px; }
+.cmp-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+@media (max-width: 760px) { .cmp-cols { grid-template-columns: minmax(0, 1fr); } }
+.cmp-col { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 12px 14px; min-width: 0; }
+.cmp-col.vec { border-top: 3px solid var(--accent); }
+.cmp-col.gr { border-top: 3px solid #1d8a8a; }
+.cmp-title { font-weight: 700; font-size: 14px; display: flex; flex-direction: column; margin-bottom: 6px; }
+.cmp-title span { font-weight: 400; font-size: 12px; color: var(--muted); }
+.cmp-err { color: var(--bad); font-size: 14px; margin: 0; }

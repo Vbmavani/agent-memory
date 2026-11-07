@@ -4,7 +4,7 @@ import { deepseekApi } from './server/api.js'
 
 export default defineConfig({
   plugins: [react(), deepseekApi],
-  build: { rollupOptions: { input: { main: 'index.html', vectors: 'vectors.html' } } }, // two pages
+  build: { rollupOptions: { input: { main: 'index.html', vectors: 'vectors.html', graph: 'graph.html' } } }, // three pages
   server: {
     port: 9200,
     host: '127.0.0.1',

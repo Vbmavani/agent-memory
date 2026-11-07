@@ -15,6 +15,7 @@ import * as db from './db.js'
 import { deepseek } from './deepseek.js'
 import * as memory from './memory.js'
 import * as search from './search.js'
+import * as graph from './graph.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i // also guards "new"
 const MAX_TOOL_ROUNDS = 4
@@ -35,6 +36,17 @@ function recalledSection(recalled) {
 RELEVANT PAST CONVERSATIONS (found automatically because they are close in meaning to the user's new message;
 they may or may not matter, so use them only if they actually help, and say which chat you are using):
 ${items.join('\n')}`
+}
+
+function graphSection(user) {
+  if (!graph.graphOn()) return ''
+  const n = (user.edges ?? []).filter((e) => !e.until).length
+  return `GRAPH MEMORY: besides facts, you keep a graph of how the people, places and things in the user's life are connected
+(for example You -managed_by-> Ana -lives_in-> Paris). It has ${n} connection${n === 1 ? '' : 's'}. For questions that follow connections
+("where does my manager live?", "who is connected to X?", "what do I know about Ana?") call explore_graph with the starting
+name ("You" for the user) and enough hops, then answer from the connections it returns. The graph is updated automatically.
+
+`
 }
 
 function systemPrompt(user, recalled) {
@@ -74,11 +86,29 @@ Never claim you cannot remember things.
 
 Today is ${today}.
 
-You can only see THIS chat's messages directly. The user has other, earlier chats with you.
+${graphSection(user)}You can only see THIS chat's messages directly. The user has other, earlier chats with you.
 When they refer to something from before ("last time", "earlier", "remember when", "what did I tell you about...",
 "what did we talk about yesterday"), or when you need a detail they may have mentioned in another chat,
 call search_past_chats or list_recent_chats first, then answer from what you find.
 Say which earlier chat the information came from. If nothing is found, say so; never invent past conversations.${recalledSection(recalled)}`
+}
+
+// ---------- compare mode: the same question answered by vector memory and by graph memory ----------
+// Read-only: nothing is saved, no memory tools exist. Each side may use ONLY its own kind of memory.
+function comparePrompt(user, side, recalled) {
+  const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const facts = (user.facts ?? []).map((f) => `- ${f.text}`)
+  const base = `You answer questions about the user (${user.name}) using ONLY your memory. Answer in one or two short sentences. ` +
+    `If your memory does not contain the answer, say you don't know. Never guess. Today is ${today}.` +
+    (facts.length ? `\n\nSaved facts about the user:\n${facts.join('\n')}` : '')
+  if (side === 'graph') {
+    const n = (user.edges ?? []).filter((e) => !e.until).length
+    return base + `\n\nYour memory is a GRAPH of connections between the people, places and things in the user's life ` +
+      `(for example You -managed_by-> Ana -lives_in-> Paris). It has ${n} connection${n === 1 ? '' : 's'}. Call explore_graph with a starting ` +
+      `name ("You" for the user) and enough hops to follow the connections, then answer from what it returns. Say which connections you followed.`
+  }
+  return base + `\n\nYour memory is the user's earlier chats with you. Look things up with search_past_chats (it searches by meaning, so ` +
+    `describe what you want in plain words) or list_recent_chats, then answer from what you find. Say which chat it came from.` + recalledSection(recalled)
 }
 
 // ---------- tools ----------
@@ -100,7 +130,7 @@ function searchToolDescription(mode) {
     'Each result has a similarity (0-1) and matchedBy (meaning / words / both). Low similarity means a weak match.'
 }
 
-const toolsFor = (mode) => [
+const toolsFor = (mode) => [...(graph.graphOn() ? [GRAPH_TOOL] : []),
   {
     type: 'function',
     function: {
@@ -192,6 +222,25 @@ const toolsFor = (mode) => [
     },
   },
 ]
+// Read-only graph lookup (see server/graph.js and db.walkGraph).
+const GRAPH_TOOL = {
+  type: 'function',
+  function: {
+    name: 'explore_graph',
+    description:
+      "Walk the graph of connections in the user's life, starting at one person, place or thing. Returns every connection within " +
+      'N hops, e.g. entity "You", 2 hops: You -managed_by-> Ana (hop 1), Ana -lives_in-> Paris (hop 2). Use it for questions that join ' +
+      'several facts ("which city does my manager live in?"). Use "You" for the user.',
+    parameters: {
+      type: 'object',
+      properties: {
+        entity: { type: 'string', description: 'Starting name, e.g. "You", "Ana", "Acme"' },
+        hops: { type: 'integer', description: 'How many connections to follow, 1-3 (default 2)' },
+      },
+      required: ['entity'],
+    },
+  },
+}
 const MEMORY_TOOLS = new Set(['remember_fact', 'forget_fact', 'save_procedure', 'forget_procedure'])
 
 async function runTool(name, args, ctx) {
@@ -240,6 +289,19 @@ async function runTool(name, args, ctx) {
     }
     return out
   }
+  if (name === 'explore_graph') {
+    const key = graph.nodeKey(args.entity)
+    if (!key) return { error: 'entity is required' }
+    const hops = clamp(args.hops, 1, 3, 2)
+    const edges = await db.walkGraph(ctx.userId, key, hops)
+    return {
+      entity: args.entity, hops, count: edges.length,
+      note: edges.length ? 'Connections are listed by hop; follow them in both directions.' : 'Nothing is connected to that name in the graph.',
+      results: edges.map((e) => ({
+        chat: `${e.from} —${e.rel}→ ${e.to}`, date: e.since, message: `hop ${e.hop}`, matchedBy: 'graph', hop: e.hop,
+      })),
+    }
+  }
   if (name === 'list_recent_chats') {
     const days = clamp(args.days, 1, 90, 7)
     const chats = await db.listRecentChats(ctx.userId, ctx.chatId, days)
@@ -259,7 +321,7 @@ async function answerWithTools({ model, messages, ctx }) {
     const allowTools = rounds < MAX_TOOL_ROUNDS
     const { status, data } = await deepseek('/chat/completions', {
       method: 'POST',
-      body: JSON.stringify({ model, messages: convo, max_tokens: 1000, ...(allowTools && { tools: toolsFor(ctx.searchMode) }) }),
+      body: JSON.stringify({ model, messages: convo, max_tokens: 1000, ...(allowTools && { tools: toolsFor(ctx.searchMode).filter((t) => !ctx.toolNames || ctx.toolNames.includes(t.function.name)) }) }),
     })
     if (status !== 200) return { status, data }
     rounds++
@@ -393,6 +455,24 @@ async function handle(req, res) {
     return send(res, status, status === 200 ? { models: data.data.map((m) => m.id) } : data)
   }
 
+  // GET /api/graph -> every connection (true and closed); GET /api/graph/walk?entity=&hops=&history=1 -> a recursive walk
+  if (parts[0] === 'graph' && !parts[1] && req.method === 'GET') return send(res, 200, { edges: user.edges ?? [] })
+  if (parts[0] === 'graph' && parts[1] === 'walk' && req.method === 'GET') {
+    const entity = graph.nodeKey(url.searchParams.get('entity') || 'you') || 'you'
+    const hops = Math.min(3, Math.max(1, Number(url.searchParams.get('hops')) || 2))
+    const history = url.searchParams.get('history') === '1'
+    return send(res, 200, { entity, hops, edges: await db.walkGraph(user.id, entity, hops, { history }), sql: db.WALK_SQL })
+  }
+  // POST /api/graph/example -> add a small example graph (no model call), to try the lab without chatting first
+  if (parts[0] === 'graph' && parts[1] === 'example' && req.method === 'POST') {
+    await db.applyGraphTriples(user.id, graph.EXAMPLE_TRIPLES, { chatId: null })
+    return send(res, 200, { edges: (await db.currentUser(user.id)).edges })
+  }
+  // DELETE /api/graph/edges/:id
+  if (parts[0] === 'graph' && parts[1] === 'edges' && parts[2] && req.method === 'DELETE') {
+    return send(res, 200, { edges: (await db.deleteEdge(user.id, parts[2])).edges })
+  }
+
   // DELETE /api/profile/facts/:id  -> forget one learned fact (from the profile screen)
   if (req.method === 'DELETE' && parts[0] === 'profile' && parts[1] === 'facts' && parts[2]) {
     return send(res, 200, await db.deleteFact(user.id, parts[2]))
@@ -437,6 +517,40 @@ async function handle(req, res) {
     return send(res, 200, { ok: true })
   }
 
+  // POST /api/compare {model, content, withFacts} -> { vector, graph }: two answers in parallel, nothing saved
+  if (req.method === 'POST' && parts[0] === 'compare') {
+    const { model, content, withFacts } = await readJson(req)
+    const text = String(content || '').trim()
+    if (!text) return send(res, 400, { error: 'Empty message' })
+    if (text.length > MAX_MESSAGE_CHARS) return send(res, 400, { error: `Message too long (max ${MAX_MESSAGE_CHARS} characters)` })
+    const run = async (side) => {
+      const t = Date.now()
+      const recalled = side === 'vector' ? await search.recallForPrompt(user.id, null, text, 3, 'meaning') : []
+      const ctx = {
+        searchMode: 'meaning', userId: user.id, chatId: null, facts: [], procedures: [], memoryRequests: [], failedQueries: [],
+        toolNames: side === 'vector' ? ['search_past_chats', 'list_recent_chats'] : ['explore_graph'],
+      }
+      const u = { ...user, facts: withFacts ? user.facts ?? [] : [] }
+      const out = await answerWithTools({
+        model, ctx,
+        messages: [{ role: 'system', content: comparePrompt(u, side, recalled) }, { role: 'user', content: text }],
+      }).catch((e) => ({ status: 500, data: { error: String(e.message || e) } }))
+      if (out.status !== 200) return { error: out.data?.error ?? `Model call failed (${out.status})` }
+      return {
+        answer: out.reply, ms: Date.now() - t, promptTokens: out.usage.prompt, outTokens: out.usage.out, modelCalls: out.rounds,
+        toolCalls: [
+          ...(recalled.length ? [{
+            name: 'auto_recall', args: {}, count: recalled.length, mode: 'meaning',
+            found: recalled.map((r) => ({ chat: r.chat, date: r.date, snippet: r.message.slice(0, 140), matchedBy: r.matchedBy, similarity: r.similarity })),
+          }] : []),
+          ...out.toolCalls,
+        ],
+      }
+    }
+    const [vector, graphSide] = await Promise.all([run('vector'), run('graph')])
+    return send(res, 200, { vector, graph: graphSide })
+  }
+
   // POST /api/chats/:id/messages  (id "new" starts a chat)  body: { model, content }
   if (req.method === 'POST' && parts[0] === 'chats' && parts[2] === 'messages') {
     const body = await readJson(req)
@@ -464,15 +578,23 @@ async function handle(req, res) {
     const previousReply = chat.messages.findLast((m) => m.role === 'assistant')?.content
     const ctx = { searchMode, userId: user.id, chatId: chat.id, facts: user.facts ?? [], procedures: user.procedures ?? [], memoryRequests: [], failedQueries: [] }
     // The reply and a speculative memory decision run at the same time, so learning adds no wait.
-    const [out, speculative] = await Promise.all([
+    const [out, speculative, extracted] = await Promise.all([
       answerWithTools({ model, messages: prompt, ctx }),
       memory.decideMemory({ user, text, previousReply }),
+      graph.graphOn() ? graph.extractTriples({ text, previousReply, existing: user.edges ?? [] }) : null,
     ])
     if (out.status !== 200) return send(res, out.status, out.data) // nothing saved if the call failed
 
     const mem = await updateMemory({
       user, chatId: chat.id, text, previousReply, speculative, requests: ctx.memoryRequests,
     })
+
+    // Graph memory: connections found in the message (people, places, things), added in one locked write.
+    let graphChanges = []
+    if (extracted?.ok) {
+      graphChanges = (await db.applyGraphTriples(user.id, extracted.triples, { chatId: chat.id }).catch((e) => { console.warn('[graph] not saved:', e.message); return [] }))
+        .map((c) => ({ ...c, kind: 'graph', source: 'auto' }))
+    } else if (extracted) console.warn('[graph] extraction failed:', extracted.error)
 
     const now = new Date().toISOString()
     const saved = await db.saveTurn({
@@ -503,10 +625,11 @@ async function handle(req, res) {
             ],
             factsInPrompt: user.facts?.length ?? 0,
             proceduresInPrompt: user.procedures?.length ?? 0,
-            memory: mem.changes,           // [{kind: 'fact'|'procedure', op, id, text | when+do, old?, source: 'tool'|'auto'}]
+            memory: [...mem.changes, ...graphChanges],           // [{kind: 'fact'|'procedure', op, id, text | when+do, old?, source: 'tool'|'auto'}]
             memoryRequests: ctx.memoryRequests.length,
             memorySkipped: mem.skipped,
-            memoryTokens: mem.tokens,
+            memoryTokens: mem.tokens + (extracted?.tokens ?? 0),
+            edgesInGraph: (user.edges ?? []).filter((e) => !e.until).length,
           },
         },
       ],
