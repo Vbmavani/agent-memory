@@ -5,7 +5,7 @@ They cover three kinds of memory.
 
 | Tool | Memory type | What it is | What it is used for |
 |---|---|---|---|
-| `search_past_chats` | Episodic | Full-text search over the user's earlier chats (not the current one). Returns matching messages with chat title, date, and the messages around them. | "What did I tell you about…", "last time…", "remember when…". |
+| `search_past_chats` | Episodic | Searches the user's earlier chats (not the current one) by words (step 1, Postgres full-text) and/or by meaning (step 2, embeddings), depending on `SEARCH_MODE`. Returns matching messages with chat title, date, the messages around them, `similarity` and `matchedBy`. See [search](search.md). | "What did I tell you about…", "last time…", "remember when…". |
 | `list_recent_chats` | Episodic | Lists chats from the last N days: title, dates, size, first message. | "What did we talk about yesterday / this week?" |
 | `remember_fact` | Semantic | Records a request to save or correct a fact about the user (e.g. "User lives in Lyon"). Does not write anything itself. | The user explicitly says "remember that…" or "actually, correct that…". |
 | `forget_fact` | Semantic | Records a request to delete a stored fact, by id. | "Forget that…", "that's no longer true". |

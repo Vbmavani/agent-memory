@@ -12,7 +12,12 @@ because it only counts the chat model.
 1. **Browser.** `send()` in [`src/App.jsx`](../src/App.jsx) posts the text to
    `POST /api/chats/:id/messages` (`new` starts a chat).
 
-2. **Build the prompt.** `systemPrompt()` in [`server/api.js`](../server/api.js) puts in the
+2. **Auto-recall** ([`server/search.js`](../server/search.js)). The new message is turned into 384
+   numbers, and up to 3 earlier chats that are clearly close in meaning (similarity 0.4 or more) are
+   added to the prompt under *RELEVANT PAST CONVERSATIONS*. This is not a model call; it uses a small
+   local embedding model. See [search](search.md).
+
+   **Build the prompt.** `systemPrompt()` in [`server/api.js`](../server/api.js) puts in the
    profile, the facts (`- [id] text`), the procedures (`- [id] WHEN … -> …`), today's date and the
    memory instructions. Then come this chat's previous messages and the new one. The meta line's
    "N procedures" is the count at this moment, before the message is handled.
@@ -48,7 +53,8 @@ because it only counts the chat model.
 
 8. **Save the turn.** `saveTurn` appends the user message and the reply (with
    `meta.memory = [{kind: "procedure", op: "add", when, do, source}]`) to `chats.messages`. The UI
-   draws each change as a 🧠 / ✏️ / 🗑 / 📘 row.
+   draws each change as a 🧠 / ✏️ / 🗑 / 📘 row. Then, in the background, the chat's embedding is
+   recomputed from all its messages (`refreshChatEmbedding`), so the next search by meaning can find it.
 
 9. **Next message, any chat.** The new procedure is in the system prompt, so the model follows it
    without being reminded.

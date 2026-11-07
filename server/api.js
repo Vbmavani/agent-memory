@@ -9,10 +9,12 @@
 //   4. TOOLS: search the user's OTHER chats (episodic memory), and record explicit
 //      remember / forget requests for facts (semantic memory) and procedures (procedural memory),
 //      applied by server/memory.js after the reply
+//   5. RELEVANT PAST CONVERSATIONS: found automatically by meaning (embeddings, server/search.js)
 import { randomUUID } from 'node:crypto'
 import * as db from './db.js'
 import { deepseek } from './deepseek.js'
 import * as memory from './memory.js'
+import * as search from './search.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i // also guards "new"
 const MAX_TOOL_ROUNDS = 4
@@ -21,7 +23,21 @@ const MAX_MESSAGE_CHARS = 8000
 // ---------- prompt ----------
 const SYSTEM = 'You are a helpful assistant. Keep answers short and clear.'
 
-function systemPrompt(user) {
+function recalledSection(recalled) {
+  if (!recalled?.length) return ''
+  const items = recalled.map((r) =>
+    `- From the chat "${r.chat}" (${String(r.date).slice(0, 10)}, similarity ${r.similarity}):\n` +
+    (r.before ? `    before: ${r.before}\n` : '') +
+    `    ${r.role}: ${r.message}` +
+    (r.after ? `\n    after: ${r.after}` : ''))
+  return `
+
+RELEVANT PAST CONVERSATIONS (found automatically because they are close in meaning to the user's new message;
+they may or may not matter, so use them only if they actually help, and say which chat you are using):
+${items.join('\n')}`
+}
+
+function systemPrompt(user, recalled) {
   const lines = [`- Name: ${user.name}`]
   if (user.email) lines.push(`- Email: ${user.email}`)
   if (user.bio) lines.push(`- About them: ${user.bio}`)
@@ -62,19 +78,30 @@ You can only see THIS chat's messages directly. The user has other, earlier chat
 When they refer to something from before ("last time", "earlier", "remember when", "what did I tell you about...",
 "what did we talk about yesterday"), or when you need a detail they may have mentioned in another chat,
 call search_past_chats or list_recent_chats first, then answer from what you find.
-Say which earlier chat the information came from. If nothing is found, say so; never invent past conversations.`
+Say which earlier chat the information came from. If nothing is found, say so; never invent past conversations.${recalledSection(recalled)}`
 }
 
 // ---------- tools ----------
+// The search tool's description depends on SEARCH_MODE (server/search.js): step 1 matches words,
+// step 2 matches meaning, so the model should write its queries differently.
+function searchToolDescription() {
+  const base = "Search the user's earlier chats with you (not the current chat). " +
+    'Returns matching messages with the chat title, date, and the messages around them. '
+  const mode = search.searchMode()
+  if (mode === 'keyword') {
+    return base + 'This is a keyword search: use short keyword queries, e.g. "cat name", "Kyoto trip", "allergy". Try another wording if nothing is found.'
+  }
+  return base + (mode === 'meaning' ? 'It searches by meaning, so ' : 'It searches by meaning and by keywords, so ') +
+    'describe what you are looking for in plain words, e.g. "what is my pet called" or "the trip I was planning". ' +
+    'Each result has a similarity (0-1) and matchedBy (meaning / words / both). Low similarity means a weak match.'
+}
+
 const TOOLS = [
   {
     type: 'function',
     function: {
       name: 'search_past_chats',
-      description:
-        "Full-text search over the user's earlier chats with you (not the current chat). " +
-        'Returns matching messages with the chat title, date, and the messages around them. ' +
-        'Use short keyword queries, e.g. "cat name", "Kyoto trip", "allergy". Try another wording if nothing is found.',
+      description: searchToolDescription(),
       parameters: {
         type: 'object',
         properties: {
@@ -199,8 +226,8 @@ async function runTool(name, args, ctx) {
   if (name === 'search_past_chats') {
     const query = String(args.query ?? '').trim()
     if (!query) return { error: 'query is required' }
-    const results = await db.searchPastChats(ctx.userId, ctx.chatId, query, clamp(args.limit, 1, 10, 6))
-    const out = { query, count: results.length, results }
+    const results = await search.searchPastChats(ctx.userId, ctx.chatId, query, clamp(args.limit, 1, 10, 6))
+    const out = { query, mode: search.searchMode(), count: results.length, results }
     // Procedural learning from experience: a retry worked after a search that found nothing.
     if (!results.length) ctx.failedQueries.push(query)
     else if (ctx.failedQueries.length && !ctx.procedures.some((p) => /search/i.test(p.when))) {
@@ -258,10 +285,13 @@ async function answerWithTools({ model, messages, ctx }) {
         args,
         count: result.count ?? 0,
         error: result.error,
+        mode: result.mode,
         found: (result.results ?? result.chats ?? []).map((r) => ({
           chat: r.chat ?? r.title,
           date: r.date ?? r.lastMessage,
           snippet: (r.message ?? r.firstMessage ?? '').slice(0, 140),
+          ...(r.matchedBy && { matchedBy: r.matchedBy }),
+          ...(r.similarity != null && { similarity: r.similarity }),
         })),
       })
     }
@@ -390,9 +420,12 @@ async function handle(req, res) {
     if (parts[1] !== 'new' && !existing) return send(res, 404, { error: 'Chat not found' })
     const chat = existing ?? { id: randomUUID(), title: text.slice(0, 50), messages: [] }
 
+    // Past chats close in meaning to this message, added to the prompt without the model asking.
+    const recalled = await search.recallForPrompt(user.id, chat.id, text)
+
     // Profile + facts (system message) + previous history of THIS chat (from Postgres) + the new message.
     const prompt = [
-      { role: 'system', content: systemPrompt(user) },
+      { role: 'system', content: systemPrompt(user, recalled) },
       ...chat.messages.map(({ role, content }) => ({ role, content })),
       { role: 'user', content: text },
     ]
@@ -430,7 +463,14 @@ async function handle(req, res) {
             contextMessages: prompt.length - 1, // previous history + new message, excluding system
             profile: user.name,
             modelCalls: out.rounds,
-            toolCalls: out.toolCalls,
+            searchMode: search.searchMode(),
+            toolCalls: [
+              ...(recalled.length ? [{
+                name: 'auto_recall', args: {}, count: recalled.length,
+                found: recalled.map((r) => ({ chat: r.chat, date: r.date, snippet: r.message.slice(0, 140), matchedBy: 'meaning', similarity: r.similarity })),
+              }] : []),
+              ...out.toolCalls,
+            ],
             factsInPrompt: user.facts?.length ?? 0,
             proceduresInPrompt: user.procedures?.length ?? 0,
             memory: mem.changes,           // [{kind: 'fact'|'procedure', op, id, text | when+do, old?, source: 'tool'|'auto'}]
@@ -441,6 +481,8 @@ async function handle(req, res) {
         },
       ],
     })
+    // Keep this chat's embedding current for future searches (in the background, after replying).
+    search.refreshChatEmbedding(user.id, saved).catch((e) => console.warn('[embed] chat not embedded:', e.message))
     return send(res, 200, saved)
   }
 

@@ -10,7 +10,7 @@ real model (DeepSeek) and a real database (Postgres).
 | Parametric | built in | What the model learned in training. Not changed by this app. |
 | Working | done | Everything in one model call: system prompt, profile, chat history, tool results. |
 | Short-term | done | The current chat's full history is loaded from Postgres and sent with every message. |
-| Episodic | done | The model can call `search_past_chats` and `list_recent_chats` to look up earlier chats. |
+| Episodic | done | The model can call `search_past_chats` and `list_recent_chats` to look up earlier chats. Search works by words (step 1, SQL full-text) and by meaning (step 2, embeddings in pgvector); related chats are also recalled into the prompt automatically. See [docs/search.md](docs/search.md). |
 | Semantic | done | The profile, plus facts the agent learns automatically or when asked ("remember / forget that…"). One memory decision per message (see below), stored in `users.facts`, sent with every request. |
 | Procedural | done | How the user wants the agent to work: routines they teach ("when I say *standup*…"), rules learned from corrections ("too long, give me 3 bullets"), and lessons the agent learns itself (a search that only worked on retry). Stored in `users.procedures` as `{when, do}`, written by the same single memory decision, followed in every chat. |
 
@@ -57,22 +57,45 @@ each word as an arrow in 3D, ranks the closest words by cosine similarity, shows
 step, and lets you make your own word with sliders. No model is involved, so every number can be
 checked on paper. It is the first step toward vector (embedding) memory. Math in `src/vectors/math.js`.
 
+## Searching past chats: learning memory search in steps
+
+This version is **step 2** of learning memory search. Step 1 is kept as it was, in its own file.
+
+If you are learning, go in order:
+
+1. **Step 1, by words.** Start the app with `SEARCH_MODE=keyword npm run dev`. `search_past_chats`
+   is then the original plain Postgres full-text search in `server/search-step1-words.js`: one SQL
+   query, no model. Notice
+   where it fails, for example "what is my pet called" against "my cat is called Pixel".
+2. **Step 2, by meaning.** Run `npm run dev` (the default is hybrid: both together), or
+   `SEARCH_MODE=meaning` for step 2 alone. Each chat is stored as an embedding (384 numbers from a
+   small local model) in a `vector` column on `chats`, and Postgres returns the closest chats. Before
+   every reply, related chats are also added to the prompt automatically (🧭 *Recalled related chats*).
+   Code: `server/search-step2-meaning.js` and `server/embed.js`.
+3. **Step 3, mem0 (next).** A ready-made memory layer, to compare with the hand-built steps. Not built yet.
+
+Compare both on your own chats with `npm run search:compare -- "your question"`. The full
+walkthrough is in [docs/search.md](docs/search.md).
+
 ## Tools the model can call
 
 | Tool | Memory type | What it is | Used for |
 |---|---|---|---|
-| `search_past_chats` | Episodic | Full-text search over earlier chats, with surrounding messages | "What did I tell you about…", "last time…" |
+| `search_past_chats` | Episodic | Searches earlier chats by words (step 1) and/or meaning (step 2), with surrounding messages, similarity and match type | "What did I tell you about…", "last time…" |
 | `list_recent_chats` | Episodic | Chats from the last N days with title, dates, first message | "What did we talk about this week?" |
 | `remember_fact` | Semantic | Records a request to save or correct a fact (never writes itself) | "Remember that…", "correct that…" |
 | `forget_fact` | Semantic | Records a request to delete a fact by id | "Forget that…" |
 | `save_procedure` | Procedural | Records a routine or rule as `when` + `do`, optionally `self_learned` | Taught routines, rules from corrections, the agent's own lessons |
 | `forget_procedure` | Procedural | Records a request to stop following a procedure | "Stop doing the standup thing" |
 
-Lookup tools run straight away. Memory tools only record requests; the single memory decision after
+Lookup tools run straight away. Auto-recall (related chats added to the prompt by meaning) is not a
+tool; it runs before every reply. Memory tools only record requests; the single memory decision after
 the reply writes them. Every message also gets a background memory decision that is not a tool.
 
 ## Docs
 
+- [Searching past chats](docs/search.md): step 1 (SQL word search), then step 2 (embeddings and
+  pgvector), hybrid ranking, auto-recall, similarity cut-offs and limits
 - [Tools](docs/tools.md): every tool, the two kinds of tools, the background decision, self-learned lessons
 - [How one message works](docs/how-a-message-works.md): the 4 model calls, the single writer, the
   locked database write, source tags, and company rules vs user procedures
@@ -82,6 +105,7 @@ the reply writes them. Every message also gets a background memory decision that
 ```bash
 npm test             # unit tests (pure memory logic for facts and procedures); database tests run only with TEST_DATABASE_URL
                      # pointing at a separate, disposable database (never the real one)
+npm run search:compare -- "what is my pet called"   # step 1 vs step 2 on your real chats
 npm run eval:memory  # live eval: scripted memory scenarios against DeepSeek (needs the API key)
 ```
 
@@ -91,7 +115,10 @@ npm run eval:memory  # live eval: scripted memory scenarios against DeepSeek (ne
 - Server routes as a Vite dev-server plugin (`server/api.js`), so the API key never reaches the browser
 - Supabase (Postgres) with two tables (`server/db.js`, schema in `supabase/migrations/`):
   - `users`: the profile, plus learned facts (`facts`) and procedures (`procedures`) as jsonb columns
-  - `chats`: one row per chat, with its full history in a `messages` jsonb column
+  - `chats`: one row per chat, with its full history in a `messages` jsonb column and its
+    `embedding` (`vector(384)`, pgvector, HNSW index) for search by meaning
+- Embeddings from `all-MiniLM-L6-v2`, running locally in Node via `@huggingface/transformers`
+  (`server/embed.js`); no API key, downloaded once (~23 MB) on first use
 - Row Level Security is on for both tables, so Supabase's public REST API exposes nothing.
   The app connects over SSL with its own login, `agent_memory_app`, which can only read and
   write rows in these two tables (no schema changes, no other data).
@@ -113,6 +140,7 @@ npm run eval:memory  # live eval: scripted memory scenarios against DeepSeek (ne
 3. Install and start:
    ```bash
    npm install
-   npm run dev
+   npm run embed:chats   # once: gives existing chats their embeddings (new chats get one automatically)
+   npm run dev           # SEARCH_MODE=keyword | meaning | hybrid (default); AUTO_RECALL=off to disable recall
    ```
    Open http://localhost:9200.

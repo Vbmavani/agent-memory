@@ -39,6 +39,9 @@ function connectionConfig(raw) {
 
 export const pool = new pg.Pool(connectionConfig(databaseUrl()))
 pool.on('error', (e) => console.error('[db] idle client error:', e.message)) // e.g. pooler restarts
+// pgvector lives in the "extensions" schema on Supabase; this makes its `vector` type and `<=>`
+// operator visible without schema prefixes (harmless where that schema does not exist).
+pool.on('connect', (client) => client.query('SET search_path TO public, extensions').catch(() => {}))
 
 // Creates the schema on a brand-new database. On Supabase the tables already exist (created by
 // migration) and the app's login deliberately has no DDL rights, so it skips this.
@@ -77,6 +80,10 @@ const SCHEMA_SQL = `
     ALTER TABLE users ADD COLUMN IF NOT EXISTS facts jsonb NOT NULL DEFAULT '[]';
     -- procedural memory: [{id, when, do, createdAt, updatedAt, source, previous}]
     ALTER TABLE users ADD COLUMN IF NOT EXISTS procedures jsonb NOT NULL DEFAULT '[]';
+    -- step 2 of past-chat search: one embedding (384 numbers) per chat, searched by meaning
+    CREATE EXTENSION IF NOT EXISTS vector;
+    ALTER TABLE chats ADD COLUMN IF NOT EXISTS embedding vector(384);
+    CREATE INDEX IF NOT EXISTS chats_embedding_idx ON chats USING hnsw (embedding vector_cosine_ops);
     -- keep both tables away from Supabase's public REST API; the app connects as the owner
     ALTER TABLE users ENABLE ROW LEVEL SECURITY;
     ALTER TABLE chats ENABLE ROW LEVEL SECURITY;
@@ -163,40 +170,11 @@ export async function deleteChat(userId, id) {
   await pool.query('DELETE FROM chats WHERE id = $1 AND user_id = $2', [id, userId])
 }
 
-// ---------- episodic memory: searching the user's OTHER chats (used by the model's tools) ----------
-
-// Full-text search over every message of the user's other chats. Words are OR-ed
-// ("cat name" matches "my cat is called Pixel"), ranked by relevance, newest first on ties.
-// Each hit comes with the message before and after it, so the model sees the exchange.
-export async function searchPastChats(userId, excludeChatId, query, limit = 6) {
-  const { rows } = await pool.query(
-    `WITH q AS (
-       SELECT to_tsquery('english', nullif(replace(plainto_tsquery('english', $3)::text, '&', '|'), '')) AS tsq
-     )
-     SELECT c.id AS "chatId", c.title, c.updated_at AS "chatDate",
-            m.msg->>'role' AS role, m.msg->>'content' AS content, m.msg->>'at' AS at,
-            c.messages->(m.idx::int - 2)->>'content' AS before,
-            c.messages->(m.idx::int)->>'content' AS after,
-            ts_rank(to_tsvector('english', m.msg->>'content'), q.tsq) AS rank
-     FROM chats c
-     CROSS JOIN LATERAL jsonb_array_elements(c.messages) WITH ORDINALITY AS m(msg, idx)
-     CROSS JOIN q
-     WHERE c.user_id = $1 AND c.id IS DISTINCT FROM $2 AND q.tsq IS NOT NULL
-       AND to_tsvector('english', m.msg->>'content') @@ q.tsq
-     ORDER BY rank DESC, c.updated_at DESC
-     LIMIT $4`,
-    [userId, excludeChatId, query, limit])
-  const cut = (s, n) => (s && s.length > n ? s.slice(0, n) + '…' : s ?? null)
-  return rows.map((r) => ({
-    chat: r.title,
-    chatId: r.chatId,
-    date: r.at ?? r.chatDate,
-    role: r.role,
-    message: cut(r.content, 600),
-    before: cut(r.before, 300),
-    after: cut(r.after, 300),
-  }))
-}
+// ---------- episodic memory: the user's OTHER chats (used by the model's tools) ----------
+// Searching them lives in its own files, one per learning step (see docs/search.md):
+//   server/search-step1-words.js    STEP 1: Postgres full-text search (the original search)
+//   server/search-step2-meaning.js  STEP 2: embeddings + pgvector
+//   server/search.js                picks the mode (SEARCH_MODE) and merges both
 
 // The user's other chats from the last N days: title, dates, size and how each started.
 export async function listRecentChats(userId, excludeChatId, days = 7, limit = 15) {

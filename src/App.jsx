@@ -25,17 +25,26 @@ function when(iso) {
   return today ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { day: 'numeric', month: 'short' })
 }
 
+const MODE_LABEL = { keyword: 'words (step 1)', meaning: 'meaning (step 2)', hybrid: 'words + meaning' }
+const MATCH_TITLE = {
+  words: 'Step 1: shares words with the search (Postgres full-text search)',
+  meaning: 'Step 2: close in meaning (embedding similarity, 0-1)',
+  both: 'Found by both the word search and the meaning search',
+}
+
 // One tool call the model made before answering (episodic memory lookup).
 function ToolCall({ call }) {
   const label = call.name === 'search_past_chats'
-    ? <>Searched past chats for <b>“{call.args.query}”</b></>
+    ? <>Searched past chats for <b>“{call.args.query}”</b>{call.mode && <span className="tool-mode"> by {MODE_LABEL[call.mode]}</span>}</>
+    : call.name === 'auto_recall'
+      ? <>Recalled related chats <span className="tool-mode">automatically, by meaning</span></>
     : call.name === 'list_recent_chats'
       ? <>Listed chats from the last <b>{call.args.days ?? 7} days</b></>
       : <>Called <b>{call.name}</b></>
   return (
     <details className="tool">
       <summary>
-        <span className="tool-icon" aria-hidden>{call.name === 'search_past_chats' ? '🔎' : '🗂'}</span>
+        <span className="tool-icon" aria-hidden>{{ search_past_chats: '🔎', auto_recall: '🧭' }[call.name] ?? '🗂'}</span>
         {label} · {call.error ? <span className="tool-err">{call.error}</span> : `${call.count} found`}
       </summary>
       {call.found?.length > 0 && (
@@ -44,6 +53,11 @@ function ToolCall({ call }) {
             <li key={i}>
               <span className="tool-chat">{f.chat}</span>
               <span className="tool-date">{when(f.date)}</span>
+              {f.matchedBy && (
+                <span className={`match ${f.matchedBy}`} title={MATCH_TITLE[f.matchedBy]}>
+                  {f.matchedBy}{f.similarity != null && ` · ${f.similarity.toFixed(2)}`}
+                </span>
+              )}
               {f.snippet && <div className="tool-snip">{f.snippet}</div>}
             </li>
           ))}
