@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="A plain-English guide to Anthropic's research post on the components of agent memory: memory notes, the four-layer stack, and dreaming.">
+<title>How Claude Remembers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single reading column with full-width figures; brass marks the one idea per figure that matters */
+:root{
+  --paper:#f3f1ec; --paper-2:#e9e5db; --ink:#1a1c22; --muted:#5c616e; --soft:#6b707b;
+  --rule:rgba(26,28,34,.12); --rule-solid:#d7d3c8; --accent:#9c6b16; --accent-tint:rgba(156,107,22,.08);
+  --link:#2f6f5e; --card:#fbfaf7;
+  --display:"Instrument Serif", Georgia, "Times New Roman", serif;
+  --body:"Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:"Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#101217; --paper-2:#1a1d24; --ink:#e9ebef; --muted:#9ca2ae; --soft:#8b909b;
+  --rule:rgba(233,235,239,.12); --rule-solid:rgba(215,211,200,.25); --accent:#d9a23f; --accent-tint:rgba(217,162,63,.12);
+  --link:#4cc99a; --card:#151820; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --paper:#101217; --paper-2:#1a1d24; --ink:#e9ebef; --muted:#9ca2ae; --soft:#8b909b;
+  --rule:rgba(233,235,239,.12); --rule-solid:rgba(215,211,200,.25); --accent:#d9a23f; --accent-tint:rgba(217,162,63,.12);
+  --link:#4cc99a; --card:#151820; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--body);font-size:16.5px;line-height:1.62;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 72px}
+main{max-width:780px;margin:0 auto}
+a{color:var(--link)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h1,h2,h3{text-wrap:balance}
+h1{font-family:var(--display);font-weight:400;font-size:clamp(44px,8vw,72px);line-height:1;margin:0 0 18px;letter-spacing:-.01em}
+h1 em{color:var(--accent)}
+h2{font-family:var(--display);font-weight:400;font-size:clamp(30px,5vw,40px);line-height:1.1;margin:0 0 14px}
+h3{font-size:18px;font-weight:600;margin:0 0 6px;line-height:1.3}
+p{margin:0 0 14px;max-width:66ch}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+.lede{font-size:19px;color:var(--ink);max-width:60ch}
+.muted{color:var(--muted)}
+header.hero{padding-block:56px 32px;border-bottom:1px solid var(--rule)}
+.source{font-family:var(--mono);font-size:12.5px;color:var(--soft);margin-top:20px}
+section{padding-block:44px 8px}
+section+section{border-top:1px solid var(--rule)}
+.quote{font-family:var(--display);font-style:italic;font-size:24px;line-height:1.3;color:var(--ink);border-left:2px solid var(--accent);padding:2px 0 2px 18px;margin:22px 0;max-width:56ch}
+
+/* Short answer */
+.tldr{display:grid;gap:0;margin-top:28px;border:1px solid var(--rule-solid);border-radius:8px;background:var(--card)}
+.tldr div{display:grid;grid-template-columns:120px 1fr;gap:16px;padding:16px 20px;align-items:baseline}
+.tldr div+div{border-top:1px solid var(--rule)}
+.tldr b{font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:500}
+.tldr span{min-width:0}
+@media (max-width:520px){.tldr div{grid-template-columns:1fr;gap:4px}}
+
+/* Not memory list */
+.notlist{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0 8px}
+.notlist div{border:1px dashed var(--rule-solid);border-radius:6px;padding:12px 14px;font-size:14.5px;min-width:0}
+.notlist strong{display:block;font-size:14.5px}
+@media (max-width:620px){.notlist{grid-template-columns:1fr}}
+
+/* Analogy */
+.analogy{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--rule-solid);border-radius:8px;overflow:hidden;margin:20px 0}
+.analogy>div{padding:18px 20px;min-width:0}
+.analogy>div+div{border-left:1px solid var(--rule-solid);background:var(--accent-tint)}
+.analogy dl{margin:0;display:grid;gap:10px}
+.analogy dt{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.analogy dd{margin:0;font-size:15px}
+@media (max-width:580px){.analogy{grid-template-columns:1fr}.analogy>div+div{border-left:0;border-top:1px solid var(--rule-solid)}}
+
+/* Figures */
+figure{margin:24px 0 18px}
+.svgwrap{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--paper-2);padding:8px}
+.svgwrap svg{display:block;width:100%;height:auto}
+figcaption{font-size:13.5px;color:var(--muted);margin-top:10px;max-width:66ch}
+.svg-paper{fill:var(--paper)} .svg-paper2{fill:var(--paper-2)}
+.t-ink{fill:var(--ink)} .t-muted{fill:var(--muted)} .t-soft{fill:var(--soft)} .t-accent{fill:var(--accent)}
+.s-rule{stroke:var(--rule-solid)} .s-ink{stroke:var(--ink)} .s-muted{stroke:var(--muted)} .s-accent{stroke:var(--accent)}
+.f-accent{fill:var(--accent)} .f-tint{fill:var(--accent-tint)} .f-muted{fill:var(--muted)} .f-card{fill:var(--card)}
+.nm{font-family:var(--body);font-weight:600}
+.mo{font-family:var(--mono)}
+
+/* Model notes */
+.models{display:grid;gap:0;margin:16px 0;border-top:1px solid var(--rule)}
+.models div{display:grid;grid-template-columns:110px 1fr;gap:14px;padding:10px 0;border-bottom:1px solid var(--rule);font-size:15px}
+.models b{font-weight:600}
+.models .hit b{color:var(--accent)}
+@media (max-width:520px){.models div{grid-template-columns:1fr;gap:2px}}
+
+/* Pokemon compare */
+.poke{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;align-items:stretch;margin:20px 0}
+.poke>div{border:1px solid var(--rule-solid);border-radius:8px;padding:18px;background:var(--card);min-width:0}
+.poke .good{border-color:var(--accent)}
+.big{font-family:var(--display);font-size:46px;line-height:1;font-variant-numeric:tabular-nums}
+.stats{display:flex;flex-wrap:wrap;gap:18px;margin:10px 0 12px}
+.stats div{min-width:0}
+.stats small{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+@media (max-width:620px){.poke{grid-template-columns:1fr}}
+
+.tip{border:1px solid var(--link);border-radius:8px;padding:16px 20px;margin:22px 0;background:color-mix(in srgb,var(--link) 6%,transparent)}
+.tip .eyebrow{color:var(--link);margin-bottom:6px}
+.tip p:last-child{margin-bottom:0}
+
+/* Dreaming jobs */
+.jobs{display:grid;gap:14px;margin:22px 0}
+.job{display:grid;grid-template-columns:44px 1fr;gap:16px;border:1px solid var(--rule-solid);border-radius:8px;padding:18px 20px;background:var(--card)}
+.job .n{font-family:var(--display);font-size:34px;line-height:1;color:var(--accent)}
+.job>div{min-width:0}
+.job p{font-size:15.5px}
+.job p:last-child{margin-bottom:0}
+.result{display:inline-block;font-family:var(--mono);font-size:12.5px;background:var(--paper-2);border-radius:4px;padding:2px 8px;margin:2px 0 8px}
+@media (max-width:520px){.job{grid-template-columns:1fr;gap:6px}}
+
+/* table */
+.tablewrap{overflow-x:auto;margin:12px 0 4px}
+table{border-collapse:collapse;width:100%;font-size:14.5px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule)}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:500}
+td.num{text-align:right;font-family:var(--mono)}
+th.num{text-align:right}
+tr.hl td{color:var(--accent);font-weight:600}
+
+.qs{display:grid;gap:12px;margin:16px 0}
+.qs div{border-left:2px solid var(--rule-solid);padding:2px 0 2px 16px}
+.qs b{display:block}
+
+.gloss{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px;margin:14px 0}
+.gloss div{padding:12px 0;border-bottom:1px solid var(--rule);min-width:0}
+.gloss dt{font-weight:600}
+.gloss dd{margin:2px 0 0;color:var(--muted);font-size:15px}
+@media (max-width:580px){.gloss{grid-template-columns:1fr}}
+
+.takeaways{counter-reset:t;list-style:none;padding:0;margin:16px 0}
+.takeaways li{counter-increment:t;display:grid;grid-template-columns:32px 1fr;gap:10px;padding:10px 0;border-bottom:1px solid var(--rule)}
+.takeaways li::before{content:counter(t);font-family:var(--mono);color:var(--accent);font-size:13px;padding-top:3px}
+footer{margin-top:40px;padding-top:20px;border-top:1px solid var(--rule);font-size:13.5px;color:var(--muted)}
+</style>
+<link rel="stylesheet" href="../assets/site.css">
+<style>
+:root { --tk-max: 780px }
+body { margin: 0 }
+.tk-origin { max-width: var(--tk-max); margin: 10px auto 0; font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; opacity: .7 }
+.tk-pager { margin-bottom: 48px }
+</style>
+</head>
+<body>
+<script src="../assets/site.js"></script>
+<p class="tk-origin">Originally a Claude artifact, made on 7 Nov 2026 to understand Anthropic's post “The components of agent memory”.</p>
+<main>
+<header class="hero">
+  <p class="eyebrow">Plain-English guide · Anthropic research post, 6 Nov 2026</p>
+  <h1>How Claude <em>remembers</em></h1>
+  <p class="lede">An AI agent forgets everything when a conversation ends. Anthropic's post explains how Claude keeps useful knowledge from one session to the next, and why the trick that works best is a lot like sleep.</p>
+  <div class="tldr" role="list">
+    <div role="listitem"><b>The problem</b><span>Each new session starts blank. Claude has to decide what to write down for later, without knowing what later will need.</span></div>
+    <div role="listitem"><b>Part one</b><span>During work, Claude writes short <strong>memory notes</strong>. Newer models are much better at choosing what's worth saving.</span></div>
+    <div role="listitem"><b>Part two</b><span>Between sessions, Claude re-reads old transcripts and cleans up its memory. Anthropic calls this <strong>dreaming</strong>. It fixes wrong notes, builds wikis, and decides what to load up front.</span></div>
+  </div>
+  <p class="source">Source: <a href="https://www.anthropic.com/research/components-of-agent-memory">“The components of agent memory”</a> by Lance Martin, Anthropic Engineering</p>
+</header>
+
+<section id="problem">
+  <p class="eyebrow">Start here</p>
+  <h2>What problem is this solving?</h2>
+  <p>Think of hiring a very capable assistant who has total amnesia every morning. They're smart, but each day they re-learn your preferences, repeat yesterday's mistakes, and rediscover the same shortcuts. That's an AI agent without memory.</p>
+  <p>The fix sounds easy: let the agent keep a notebook. The hard part is what goes in it. Write too little and the useful lessons are lost. Write everything and the notebook turns into a junk drawer that costs more to search than it saves. And a note that was wrong, or went out of date, can mislead every future session that trusts it.</p>
+  <p class="quote">The post opens with Kierkegaard's line that life is understood backward but lived forward. Memory has the same bind: you choose what to save before you know what will matter.</p>
+  <p>In this post, <strong>agent memory</strong> means knowledge Claude picks up from experience (talking with people, doing tasks) and saves as text it can read in a later session. Three things that sound similar are left out:</p>
+  <div class="notlist">
+    <div><strong>Training</strong>What's baked into the model's weights. Fixed after training.</div>
+    <div><strong>In-conversation learning</strong>What Claude picks up within one chat. Gone when it ends.</div>
+    <div><strong>Compaction</strong>Summarizing older turns so a long task fits. Same session, not memory across sessions.</div>
+  </div>
+</section>
+
+<section id="analogy">
+  <p class="eyebrow">The big idea</p>
+  <h2>Borrowed from how people sleep</h2>
+  <p>Your brain records experiences quickly during the day, but only some of them become lasting knowledge. A lot of that sorting happens offline, during sleep or quiet rest, when the brain replays recent events and files the important ones into long-term memory. Experiences tagged as important get replayed more.</p>
+  <div class="analogy">
+    <div>
+      <p class="eyebrow">Your brain</p>
+      <dl>
+        <div><dt>Quick capture</dt><dd>The hippocampus records what happened today</dd></div>
+        <div><dt>Tagging</dt><dd>Chemical signals mark some moments as important</dd></div>
+        <div><dt>Offline replay</dt><dd>Sleep replays the day and files lessons into long-term memory</dd></div>
+      </dl>
+    </div>
+    <div>
+      <p class="eyebrow">Claude</p>
+      <dl>
+        <div><dt>Quick capture</dt><dd>Transcripts log everything that happened in a session</dd></div>
+        <div><dt>Tagging</dt><dd>Claude writes memory notes about moments it judges important</dd></div>
+        <div><dt>Offline replay</dt><dd><strong>Dreaming</strong>: a later pass re-reads transcripts and reorganizes memory</dd></div>
+      </dl>
+    </div>
+  </div>
+  <p>The idea builds on "sleep-time compute," proposed by Letta and UC Berkeley: use the idle time between conversations to reorganize what the model already has.</p>
+</section>
+
+<section id="stack">
+  <p class="eyebrow">The components</p>
+  <h2>Memory is a stack of four layers</h2>
+  <p>The "components" in the title are these layers. Lower layers hold more and are slower to use. Higher layers are smaller and closer to hand. The top one is loaded into every session automatically.</p>
+  <figure>
+    <div class="svgwrap">
+      <svg viewBox="0 0 1000 360" role="img" aria-labelledby="stack-title stack-desc" style="min-width:680px">
+        <title id="stack-title">The agent memory stack</title>
+        <desc id="stack-desc">Four memory layers from raw transcripts up to context loaded into every session, with a dreaming process that reads transcripts and maintains the layers above.</desc>
+        <defs>
+          <marker id="stk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-accent"/></marker>
+          <marker id="stk-arrow-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-muted"/></marker>
+        </defs>
+        <!-- arrows first -->
+        <line x1="220" y1="76" x2="296" y2="76" class="s-accent" stroke-width="1.6" marker-end="url(#stk-arrow)"/>
+        <line x1="220" y1="148" x2="296" y2="148" class="s-accent" stroke-width="1.6" marker-end="url(#stk-arrow)"/>
+        <line x1="220" y1="220" x2="296" y2="220" class="s-accent" stroke-width="1.6" marker-end="url(#stk-arrow)"/>
+        <line x1="300" y1="292" x2="224" y2="292" class="s-muted" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#stk-arrow-m)"/>
+        <rect x="236" y="280" width="52" height="24" class="svg-paper2"/>
+        <text x="262" y="296" text-anchor="middle" class="mo t-muted" font-size="10" letter-spacing=".08em">READS</text>
+
+        <!-- dreaming box -->
+        <rect x="40" y="40" width="180" height="288" rx="6" class="f-tint s-accent" stroke-width="1.4"/>
+        <text x="130" y="168" text-anchor="middle" class="t-accent" font-family="Instrument Serif, Georgia, serif" font-size="30">Dreaming</text>
+        <text x="130" y="194" text-anchor="middle" class="mo t-muted" font-size="10.5" letter-spacing=".08em">BETWEEN SESSIONS</text>
+        <text x="130" y="214" text-anchor="middle" class="mo t-muted" font-size="10.5" letter-spacing=".08em">FIX · BUILD · PROMOTE</text>
+
+        <!-- layers -->
+        <rect x="300" y="40" width="660" height="288" rx="6" class="svg-paper s-ink" stroke-width="1"/>
+        <rect x="301" y="41" width="658" height="70" rx="5" class="svg-paper"/>
+        <line x1="300" y1="112" x2="960" y2="112" class="s-rule"/>
+        <line x1="300" y1="184" x2="960" y2="184" class="s-rule"/>
+        <line x1="300" y1="256" x2="960" y2="256" class="s-rule"/>
+
+        <text x="320" y="80" class="mo t-soft" font-size="10" letter-spacing=".1em">L4</text>
+        <text x="360" y="72" class="nm t-ink" font-size="16">Injected context</text>
+        <text x="360" y="92" class="mo t-muted" font-size="11">loaded into every session, e.g. MEMORY.md</text>
+        <text x="940" y="80" text-anchor="end" class="mo t-muted" font-size="11">smallest · always on</text>
+
+        <text x="320" y="152" class="mo t-soft" font-size="10" letter-spacing=".1em">L3</text>
+        <text x="360" y="144" class="nm t-ink" font-size="16">Representations (wikis)</text>
+        <text x="360" y="164" class="mo t-muted" font-size="11">linked pages, one per subject</text>
+        <text x="940" y="152" text-anchor="end" class="mo t-muted" font-size="11">built by dreaming</text>
+
+        <text x="320" y="224" class="mo t-soft" font-size="10" letter-spacing=".1em">L2</text>
+        <text x="360" y="216" class="nm t-ink" font-size="16">Memory notes</text>
+        <text x="360" y="236" class="mo t-muted" font-size="11">what Claude chose to write down</text>
+        <text x="940" y="224" text-anchor="end" class="mo t-muted" font-size="11">written during work</text>
+
+        <text x="320" y="296" class="mo t-soft" font-size="10" letter-spacing=".1em">L1</text>
+        <text x="360" y="288" class="nm t-ink" font-size="16">Transcripts</text>
+        <text x="360" y="308" class="mo t-muted" font-size="11">full, searchable log of every session</text>
+        <text x="940" y="296" text-anchor="end" class="mo t-muted" font-size="11">largest · ground truth</text>
+      </svg>
+    </div>
+    <figcaption>Redrawn from the post's Figure 1. Claude writes notes (L2) while it works. Dreaming reads the raw transcripts (L1) and maintains everything above them.</figcaption>
+  </figure>
+</section>
+
+<section id="notes">
+  <p class="eyebrow">Part one · while working</p>
+  <h2>Memory notes: deciding what to write down</h2>
+  <p>Writing a note is a bet that it will matter again. Recording a fact you've already checked is a bet that a future session will want to use it without checking again. The post's main finding here: newer Claude models make much better bets.</p>
+
+  <h3>Test 1: a database quiz with memory</h3>
+  <p>On a benchmark called CL-Bench, Claude answers questions by querying a database. After each answer it's told the right solution and can save notes. Every question starts a fresh session, and the only thing that carries over is the folder of notes. The ideal habit is a loop: get it wrong, guess why, test the guess, and save a proven rule.</p>
+  <figure>
+    <div class="svgwrap">
+      <svg viewBox="0 0 1000 480" role="img" aria-labelledby="clb-title clb-desc" style="min-width:640px">
+        <title id="clb-title">CL-Bench score with and without memory</title>
+        <desc id="clb-desc">For six Claude models, average score without memory and with a memory folder. Newer models gain far more from memory; Sonnet 4.6 barely improves.</desc>
+        <!-- grid -->
+        <line x1="200" y1="40" x2="200" y2="420" class="s-ink" stroke-opacity=".25"/>
+        <line x1="417" y1="56" x2="417" y2="408" class="s-ink" stroke-opacity=".08"/>
+        <line x1="634" y1="56" x2="634" y2="408" class="s-ink" stroke-opacity=".08"/>
+        <line x1="851" y1="56" x2="851" y2="408" class="s-ink" stroke-opacity=".08"/>
+        <text x="200" y="440" text-anchor="middle" class="mo t-muted" font-size="11">0.2</text>
+        <text x="417" y="440" text-anchor="middle" class="mo t-muted" font-size="11">0.4</text>
+        <text x="634" y="440" text-anchor="middle" class="mo t-muted" font-size="11">0.6</text>
+        <text x="851" y="440" text-anchor="middle" class="mo t-muted" font-size="11">0.8</text>
+        <text x="580" y="464" text-anchor="middle" class="mo t-soft" font-size="10" letter-spacing=".12em">MEAN REWARD (HIGHER IS BETTER)</text>
+
+        <!-- rows: label, hollow = no memory, filled = with memory -->
+        <g font-size="13">
+          <text x="188" y="80" text-anchor="end" class="nm t-ink">Opus 5.5</text>
+          <line x1="694" y1="76" x2="893" y2="76" class="s-muted" stroke-width="1.4"/>
+          <circle cx="694" cy="76" r="6" class="svg-paper s-muted" stroke-width="1.6"/>
+          <circle cx="893" cy="76" r="6" class="f-muted"/>
+          <text x="905" y="80" class="mo t-muted" font-size="11">.84</text>
+          <text x="682" y="80" text-anchor="end" class="mo t-soft" font-size="11">.66</text>
+
+          <text x="188" y="144" text-anchor="end" class="nm t-ink">Sonnet 5.5</text>
+          <line x1="682" y1="140" x2="887" y2="140" class="s-muted" stroke-width="1.4"/>
+          <circle cx="682" cy="140" r="6" class="svg-paper s-muted" stroke-width="1.6"/>
+          <circle cx="887" cy="140" r="6" class="f-muted"/>
+          <text x="899" y="144" class="mo t-muted" font-size="11">.83</text>
+          <text x="670" y="144" text-anchor="end" class="mo t-soft" font-size="11">.64</text>
+
+          <text x="188" y="208" text-anchor="end" class="nm t-accent">Opus 5</text>
+          <line x1="595" y1="204" x2="882" y2="204" class="s-accent" stroke-width="2.4"/>
+          <circle cx="595" cy="204" r="6" class="svg-paper s-accent" stroke-width="2"/>
+          <circle cx="882" cy="204" r="7" class="f-accent"/>
+          <text x="894" y="208" class="mo t-ink" font-size="11">.83</text>
+          <text x="583" y="208" text-anchor="end" class="mo t-soft" font-size="11">.56</text>
+
+          <text x="188" y="272" text-anchor="end" class="nm t-ink">Opus 4.7</text>
+          <line x1="399" y1="268" x2="743" y2="268" class="s-muted" stroke-width="1.4"/>
+          <circle cx="399" cy="268" r="6" class="svg-paper s-muted" stroke-width="1.6"/>
+          <circle cx="743" cy="268" r="6" class="f-muted"/>
+          <text x="755" y="272" class="mo t-muted" font-size="11">.70</text>
+          <text x="387" y="272" text-anchor="end" class="mo t-soft" font-size="11">.38</text>
+
+          <text x="188" y="336" text-anchor="end" class="nm t-ink">Sonnet 5</text>
+          <line x1="315" y1="332" x2="645" y2="332" class="s-muted" stroke-width="1.4"/>
+          <circle cx="315" cy="332" r="6" class="svg-paper s-muted" stroke-width="1.6"/>
+          <circle cx="645" cy="332" r="6" class="f-muted"/>
+          <text x="657" y="336" class="mo t-muted" font-size="11">.61</text>
+          <text x="303" y="336" text-anchor="end" class="mo t-soft" font-size="11">.31</text>
+
+          <text x="188" y="400" text-anchor="end" class="nm t-ink">Sonnet 4.6</text>
+          <line x1="341" y1="396" x2="378" y2="396" class="s-muted" stroke-width="1.4"/>
+          <circle cx="341" cy="396" r="6" class="svg-paper s-muted" stroke-width="1.6"/>
+          <circle cx="378" cy="396" r="6" class="f-muted"/>
+          <text x="390" y="400" class="mo t-muted" font-size="11">.36</text>
+          <text x="329" y="400" text-anchor="end" class="mo t-soft" font-size="11">.33</text>
+        </g>
+        <!-- legend -->
+        <circle cx="620" cy="28" r="5" class="svg-paper s-muted" stroke-width="1.6"/>
+        <text x="632" y="32" class="mo t-muted" font-size="11">no memory</text>
+        <circle cx="740" cy="28" r="5" class="f-muted"/>
+        <text x="752" y="32" class="mo t-muted" font-size="11">with memory folder</text>
+      </svg>
+    </div>
+    <figcaption>Values read from the post's CL-Bench chart. Opus 5 is highlighted because it was the first model to "close the loop," with the biggest jump (+0.26).</figcaption>
+  </figure>
+  <p>What changed between models was the quality of their notes, not just the score:</p>
+  <div class="models">
+    <div><b>Sonnet 4.6</b><span>Scattered files full of untested guesses. Often didn't even read its own notes.</span></div>
+    <div><b>Opus 4.7</b><span>Merged notes into one reference doc and marked which facts were checked.</span></div>
+    <div><b>Sonnet 5</b><span>Marked answers as confirmed once graded, and wrote corrections after mistakes.</span></div>
+    <div class="hit"><b>Opus 5</b><span>First to close the loop: each note had a rule, how it was proven, and warnings about traps.</span></div>
+    <div><b>5.5 models</b><span>Also closed the loop. Started higher without memory and ended about level with Opus 5.</span></div>
+  </div>
+
+  <h3>Test 2: playing Pokémon Red</h3>
+  <p>Each model got a folder to keep notes while playing. Compared after about 10,000 game steps:</p>
+  <div class="poke">
+    <div>
+      <p class="eyebrow">Claude Sonnet 3.7 · saved everything</p>
+      <div class="stats">
+        <div><span class="big">413</span><small>files</small></div>
+        <div><span class="big">225</span><small>folders</small></div>
+        <div><span class="big">1</span><small>badge</small></div>
+      </div>
+      <p style="font-size:15px;margin:0">A separate file for every battle, item and character. The game changes constantly, so the notes went stale. At one point it spent 17 steps creating and deleting files without playing at all.</p>
+    </div>
+    <div class="good">
+      <p class="eyebrow" style="color:var(--accent)">Claude Fable 5 · saved what matters</p>
+      <div class="stats">
+        <div><span class="big">10</span><small>files</small></div>
+        <div><span class="big">2</span><small>folders</small></div>
+        <div><span class="big">4</span><small>badges</small></div>
+      </div>
+      <p style="font-size:15px;margin:0">Skipped anything visible on screen anyway (money, map position). Saved only what it had to work out: plans, strategies, tested rules, plus a one-page dashboard of its current goal.</p>
+    </div>
+  </div>
+  <figure>
+    <div class="svgwrap">
+      <svg viewBox="0 0 1000 320" role="img" aria-labelledby="poke-title poke-desc" style="min-width:560px">
+        <title id="poke-title">Size of each model's Pokémon notes</title>
+        <desc id="poke-desc">Areas sized to total characters of memory: Sonnet 3.7 wrote about 978,000 characters, Fable 5 about 43,000, roughly 22 times less.</desc>
+        <rect x="120" y="40" width="240" height="240" rx="4" class="f-card s-muted" stroke-width="1"/>
+        <text x="380" y="60" class="nm t-ink" font-size="15">Sonnet 3.7</text>
+        <text x="380" y="82" class="mo t-muted" font-size="12">977,930 characters</text>
+        <text x="380" y="102" class="mo t-muted" font-size="12">1 badge</text>
+        <rect x="600" y="229" width="51" height="51" rx="3" class="f-tint s-accent" stroke-width="1.6"/>
+        <text x="672" y="250" class="nm t-accent" font-size="15">Fable 5</text>
+        <text x="672" y="272" class="mo t-muted" font-size="12">43,406 characters · 4 badges</text>
+        <line x1="40" y1="296" x2="960" y2="296" class="s-rule"/>
+        <text x="40" y="314" class="mo t-soft" font-size="10" letter-spacing=".1em">AREA = TOTAL TEXT IN THE MEMORY FOLDER · ABOUT 22× LESS, 4× THE PROGRESS</text>
+      </svg>
+    </div>
+  </figure>
+  <p>A nice example of a learned rule: after seven failed attempts to catch a Magikarp, Claude wrote "if three or more Poké Balls fail in a row, change the timing by waiting a little." The very next catch worked.</p>
+
+  <div class="tip">
+    <p class="eyebrow">Practical tip from the post</p>
+    <p><strong>Tell Claude what memory is for, not how to use it.</strong> For strong models, just saying "a memory folder exists" was enough. Adding strict rules like "only record failures" actually made Opus 5 worse (its gain dropped by 0.23).</p>
+    <p>Older models are the exception. Telling Sonnet 4.6 to read its notes first and to test its theories nearly doubled its score, from 0.33 to 0.64.</p>
+  </div>
+</section>
+
+<section id="dreaming">
+  <p class="eyebrow">Part two · between sessions</p>
+  <h2>Dreaming: tidying memory after the fact</h2>
+  <p>Notes written mid-task are a guess about what will matter, made with only that session in view. Dreaming is a separate pass that runs later, re-reads the full transcripts, and improves the memory with hindsight. The post describes five jobs it does.</p>
+
+  <div class="jobs">
+    <div class="job"><div class="n">1</div><div>
+      <h3>Correct wrong notes</h3>
+      <span class="result">Fixed note → reached the next city at action 1,935 · Unfixed → never got there</span>
+      <p>In Pokémon, Claude wrongly noted which side of Mt. Moon a landmark was on, declared the area "DONE," and kept falling off a one-way ledge back to the start. It looped three times, then walked all the way back to the previous town.</p>
+      <p>Dreaming checked the note against the transcript, caught the error, and rewrote it. With the corrected note, Claude went straight through.</p>
+    </div></div>
+
+    <div class="job"><div class="n">2</div><div>
+      <h3>Build a wiki out of raw material</h3>
+      <span class="result">Wiki alone: 13% → 48% of answers · Wiki + search: 61% vs 53% search only</span>
+      <p>Anthropic pointed dreaming at about 350,000 files (around 420 million tokens) from Stainless, a company it acquired. Over 128 sessions, Claude agents explored files and wrote linked wiki pages, like a new employee slowly becoming a veteran. The wiki grew from 103 pages to 222, with links going from 766 to 12,893. Using wiki plus search also saved about 20,000 tokens per question.</p>
+      <p>On legal merger questions that needed facts from several documents, the wiki scored 87% against 73% for search alone. It didn't help when the answer sat in one document anyway. And on a tiny 10-document set, the wiki came out 1.77× larger than the originals, which defeats the point of a summary.</p>
+    </div></div>
+
+    <div class="job"><div class="n">3</div><div>
+      <h3>Promote the most important notes to the top</h3>
+      <span class="result">Rule: keep the always-loaded layer small</span>
+      <p>The top layer is loaded into every session, so Claude doesn't need to go looking. But it costs space every time, a wrong note there spreads everywhere, and long instruction files get followed less reliably. So much of dreaming's work is moving detail <em>down</em> and leaving a short index on top. Claude Code, for example, only loads the first 200 lines (or 25 KB) of its MEMORY.md file.</p>
+    </div></div>
+
+    <div class="job"><div class="n">4</div><div>
+      <h3>Focus memory on a goal</h3>
+      <span class="result">Contract facts kept: 41 of 57 (72%) → 57 of 57 (100%)</span>
+      <p>With generic instructions, several agents edited one shared table of contract terms at once and overwrote each other's work. Claude then reviewed its own failures and rewrote the instructions: one page per contract, one writer per page, terms quoted word for word. Every graded fact survived.</p>
+    </div></div>
+
+    <div class="job"><div class="n">5</div><div>
+      <h3>Fill gaps a single session can't see</h3>
+      <span class="result">Links: 225 → 278 · Pages: 38 → 41</span>
+      <p>Because dreaming looks across many sessions, it can spot shared patterns and loose ends. A second pass found nine links pointing to a missing page, redirected them to the page that already covered it, and added three pages nobody had written.</p>
+    </div></div>
+  </div>
+</section>
+
+<section id="open">
+  <p class="eyebrow">Still unsolved</p>
+  <h2>Open questions</h2>
+  <div class="qs">
+    <div><b>When should memory be written?</b>Writing during the task captures the moment while it's fresh, but distracts from the task. Dreaming later keeps the task clean, but the lessons aren't ready right away.</div>
+    <div><b>How do you keep memory current?</b>Notes go stale as the world changes. Re-checking everything is expensive, so one idea is to re-check only what's likely to change, or what gets used most.</div>
+    <div><b>What's the foundation?</b>The full transcripts plus search are the base. Wikis on top help, but they need upkeep so errors don't pile up.</div>
+  </div>
+  <p>The post's conclusion: no model can truly know what future sessions will need. Better judgment helps in the moment, and dreaming lets Claude look back and fix what it got wrong.</p>
+</section>
+
+<section id="takeaways">
+  <p class="eyebrow">If you build with agents</p>
+  <h2>What to take away</h2>
+  <ol class="takeaways">
+    <li><span>Give the agent a place to keep notes, and tell it what the notes are for. With current models, skip the detailed rules.</span></li>
+    <li><span>Keep the full transcripts. They're the record you check every note against.</span></li>
+    <li><span>Keep the always-loaded memory short: an index that points to details elsewhere.</span></li>
+    <li><span>Run a periodic clean-up pass that fixes stale notes and links things together. Aim it at a specific goal.</span></li>
+    <li><span>Build a wiki only when answers span many documents. For small or simple sources, search is enough.</span></li>
+  </ol>
+  <p class="muted" style="font-size:14.5px">Anthropic links two starter guides from the post: a <a href="https://platform.claude.com/cookbook/managed-agents-cma-dreaming-with-a-dynamic-workflow">dreaming cookbook</a> and a <a href="https://github.com/anthropics/claude-quickstarts">knowledge-wiki quickstart</a> (under managed-agents/knowledge-wiki).</p>
+</section>
+
+<section id="glossary">
+  <p class="eyebrow">Words used above</p>
+  <h2>Quick glossary</h2>
+  <dl class="gloss">
+    <div><dt>Session</dt><dd>One conversation or task run. Memory is what survives from one session to the next.</dd></div>
+    <div><dt>Transcript</dt><dd>The complete log of what happened in a session.</dd></div>
+    <div><dt>Salience</dt><dd>How important something seems at the time. Deciding salience is deciding what to write down.</dd></div>
+    <div><dt>Context</dt><dd>Everything the model can see right now. Space is limited, so what's loaded matters.</dd></div>
+    <div><dt>Token</dt><dd>A chunk of text, roughly ¾ of a word. A measure of size and cost.</dd></div>
+    <div><dt>Benchmark</dt><dd>A standard test used to compare models. CL-Bench tests learning over many tasks.</dd></div>
+  </dl>
+</section>
+
+<footer>Summary of Anthropic's research post “The components of agent memory” (6 Nov 2026). Numbers come from the post's text and charts; chart values are rounded.</footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="A learning path for agent memory: the memory types, the five operations every memory system does, and 12 hands-on labs. Made on 4 Nov 2026 as the first step of learning agent memory.">
+<title>Agent Memory Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky progress sidebar + one reading column; labs are checkable rows that remember progress per viewer */
+:root{
+  --bg:#f5f7f7; --surface:#ffffff; --fg:#17201f; --muted:#5a6866; --line:#d9e1e0;
+  --accent:#0d6b66; --accent-soft:#dcefed; --done:#b86e00; --done-soft:#fbeed8; --code-bg:#eef2f2;
+  --display:"Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1514; --surface:#161e1d; --fg:#e4ecea; --muted:#94a5a2; --line:#2a3634;
+  --accent:#4fc2b9; --accent-soft:#163533; --done:#f0a83a; --done-soft:#3a2a12; --code-bg:#1b2524; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1514; --surface:#161e1d; --fg:#e4ecea; --muted:#94a5a2; --line:#2a3634;
+  --accent:#4fc2b9; --accent-soft:#163533; --done:#f0a83a; --done-soft:#3a2a12; --code-bg:#1b2524; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 var(--body);
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:0}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+.wrap{max-width:1120px;margin:0 auto;display:grid;grid-template-columns:240px minmax(0,1fr);gap:48px;padding-block:40px 80px}
+@media (max-width:860px){.wrap{grid-template-columns:minmax(0,1fr);gap:24px;padding-block:24px 60px}}
+
+/* sidebar */
+aside{position:sticky;top:calc(env(safe-area-inset-top, 0px) + 24px);align-self:start;display:flex;flex-direction:column;gap:20px}
+@media (max-width:860px){aside{position:static}}
+.brand{font:700 1.15rem/1.2 var(--display);letter-spacing:-.01em}
+.meter{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.meter .lab{font:500 .72rem var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.meter .num{font:700 1.6rem/1 var(--display);font-variant-numeric:tabular-nums}
+.bar{height:6px;border-radius:3px;background:var(--accent-soft);overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--done);transition:width .3s}
+.reset{align-self:start;background:none;border:0;padding:0;color:var(--muted);font:500 .8rem var(--body);text-decoration:underline;cursor:pointer}
+nav ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+nav a{display:block;padding:5px 10px;border-radius:6px;color:var(--muted);text-decoration:none;font-size:.92rem}
+nav a:hover{background:var(--accent-soft);color:var(--fg)}
+@media (max-width:860px){nav{display:none}}
+
+/* main */
+main{min-width:0;display:flex;flex-direction:column;gap:56px}
+header h1{font:700 clamp(2rem,5vw,3.1rem)/1.05 var(--display);letter-spacing:-.025em;margin:0 0 14px;text-wrap:balance}
+header p{margin:0;max-width:62ch;color:var(--muted);font-size:1.08rem}
+.key{margin-top:22px;padding:16px 18px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;max-width:68ch}
+.key strong{display:block;font:600 .75rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+section{display:flex;flex-direction:column;gap:16px;scroll-margin-top:24px}
+h2{font:700 1.65rem/1.15 var(--display);letter-spacing:-.015em;margin:0;text-wrap:balance}
+h3{font:600 1.1rem/1.3 var(--body);margin:0}
+.eyebrow{font:500 .74rem var(--mono);text-transform:uppercase;letter-spacing:.09em;color:var(--accent)}
+p{margin:0;max-width:68ch}
+.lede{color:var(--muted)}
+
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:.93rem}
+th,td{text-align:left;vertical-align:top;padding:10px 14px;border-bottom:1px solid var(--line)}
+th{font:500 .72rem var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);background:var(--code-bg)}
+tr:last-child td{border-bottom:0}
+td:first-child{font-weight:600;white-space:nowrap}
+
+.terms{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.terms div{padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:.92rem}
+.terms b{display:block;margin-bottom:2px}
+
+.ops{list-style:none;margin:0;padding:0;counter-reset:op;display:flex;flex-direction:column;gap:12px}
+.ops li{counter-increment:op;display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px;align-items:start}
+.ops li::before{content:counter(op);font:700 1rem/36px var(--display);text-align:center;width:36px;height:36px;border-radius:50%;background:var(--accent-soft);color:var(--accent)}
+.ops ul{margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:.94rem}
+.ops ul li{display:list-item}
+.ops ul li::before{content:none}
+
+.track{display:flex;flex-direction:column;gap:12px}
+.track-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px}
+.track-head .count{font:500 .8rem var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+
+details.lab{border:1px solid var(--line);border-radius:10px;background:var(--surface);transition:border-color .2s}
+details.lab.is-done{border-color:var(--done);background:linear-gradient(var(--done-soft),var(--done-soft)) top/100% 0 no-repeat,var(--surface)}
+details.lab summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:14px 16px}
+details.lab summary::-webkit-details-marker{display:none}
+.chk{width:20px;height:20px;accent-color:var(--done);margin:0;cursor:pointer}
+.lab-no{font:500 .78rem var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.lab-title{font-weight:600}
+.lab-title small{display:block;font-weight:400;color:var(--muted);font-size:.86rem}
+.chev{color:var(--muted);transition:transform .2s;font-size:.8rem}
+details[open] .chev{transform:rotate(90deg)}
+.is-done .lab-title{color:var(--muted)}
+.is-done .lab-no{color:var(--done)}
+.lab-body{padding:2px 16px 18px 60px;display:flex;flex-direction:column;gap:10px;font-size:.95rem}
+@media (max-width:560px){.lab-body{padding-left:16px}}
+.lab-body ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+.learn{font-size:.9rem;color:var(--muted)}
+.learn b{color:var(--accent);font:600 .72rem var(--mono);text-transform:uppercase;letter-spacing:.07em;margin-right:6px}
+code{font:.86em var(--mono);background:var(--code-bg);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+pre{margin:0;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;font:.82rem/1.55 var(--mono)}
+pre code{background:none;padding:0;font-size:inherit;overflow-wrap:normal}
+.warn{font-size:.9rem;padding:10px 12px;border-radius:6px;background:var(--done-soft)}
+
+.reading{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:8px;max-width:70ch}
+.reading span{color:var(--muted)}
+footer{color:var(--muted);font-size:.9rem;border-top:1px solid var(--line);padding-top:20px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+<link rel="stylesheet" href="../assets/site.css">
+<style>
+:root { --tk-max: 1120px }
+body { margin: 0 }
+.tk-origin { max-width: var(--tk-max); margin: 10px auto 0; font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; opacity: .7 }
+.tk-pager { margin-bottom: 48px }
+</style>
+</head>
+<body>
+<script src="../assets/site.js"></script>
+<p class="tk-origin">Originally a Claude artifact, made on 4 Nov 2026 at the very start: the map I asked for before building anything. Lab checkboxes save in your browser only.</p>
+<div class="wrap">
+  <aside>
+    <div class="brand">Agent Memory Lab</div>
+    <div class="meter" aria-live="polite">
+      <span class="lab">Labs done</span>
+      <span class="num" id="progressNum">0 / 12</span>
+      <div class="bar"><i id="progressBar"></i></div>
+      <button class="reset" id="resetBtn" type="button">Clear my progress</button>
+    </div>
+    <nav aria-label="Sections">
+      <ol>
+        <li><a href="#idea">The core idea</a></li>
+        <li><a href="#types">Types of memory</a></li>
+        <li><a href="#ops">Five operations</a></li>
+        <li><a href="#track-a">Track A · Claude Code</a></li>
+        <li><a href="#track-b">Track B · Your own harness</a></li>
+        <li><a href="#track-c">Track C · Frameworks</a></li>
+        <li><a href="#reading">Reading list</a></li>
+        <li><a href="#schedule">Six-week plan</a></li>
+      </ol>
+    </nav>
+  </aside>
+
+  <main>
+    <header id="idea">
+      <div class="eyebrow">Learning path · 12 hands-on labs</div>
+      <h1>How AI agents remember</h1>
+      <p>A guide to the kinds of memory an agent can have, the decisions every memory system makes, and labs you can run yourself, first by changing Claude Code and then by building your own harness.</p>
+      <div class="key">
+        <strong>The core idea</strong>
+        An LLM is stateless. Between API calls it remembers nothing. Everything an agent "remembers" is either in its <em>weights</em> from training, or put back into its <em>context window</em> by the harness on every call. Agent memory is the harness deciding what to store, where, and which pieces to load back at the right moment. That is why changing the harness is the way to learn it.
+      </div>
+    </header>
+
+    <section id="types">
+      <div class="eyebrow">Part 2</div>
+      <h2>Types of memory</h2>
+      <p class="lede">Most people use the taxonomy from the CoALA paper (Sumers et al., 2023), which borrows from human cognitive science.</p>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Type</th><th>Human analogy</th><th>In an agent</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr><td>Parametric</td><td>Instinct, general knowledge</td><td>Knowledge baked into the weights</td><td>Knowing what Python is</td></tr>
+            <tr><td>Working</td><td>What you're holding in mind now</td><td>The current context window: system prompt, messages, tool results</td><td>The file it just read</td></tr>
+            <tr><td>Short-term</td><td>The last few minutes</td><td>This session's message history, maybe trimmed or summarized</td><td>"As I said earlier…"</td></tr>
+            <tr><td>Episodic</td><td>"I remember that time when…"</td><td>Records of past events and sessions, with time and outcome</td><td>"Last Tuesday's deploy failed because of X"</td></tr>
+            <tr><td>Semantic</td><td>Facts you know</td><td>Lasting facts about the user, project or world</td><td>"User prefers TypeScript"</td></tr>
+            <tr><td>Procedural</td><td>Knowing how to ride a bike</td><td>How to do things: instructions, skills, learned workflows, code</td><td>CLAUDE.md rules, Skills, a saved-script library</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Other terms you'll see</h3>
+      <div class="terms">
+        <div><b>Scratchpad / notes</b>The agent writes notes to a file while it works, like <code>NOTES.md</code> or a todo list.</div>
+        <div><b>Entity memory</b>Facts grouped by entity: a person, repo or customer.</div>
+        <div><b>Graph memory</b>Facts as subject → relation → object, often with time attached (Zep/Graphiti).</div>
+        <div><b>Retrieval (RAG)</b>A large external store searched by embeddings or keywords.</div>
+        <div><b>Shared memory</b>One store that several agents read and write.</div>
+        <div><b>Cache memory</b>KV cache and prompt caching. About speed and cost, not meaning, but it shapes memory design (Lab 10).</div>
+      </div>
+    </section>
+
+    <section id="ops">
+      <div class="eyebrow">Part 3</div>
+      <h2>The five operations every memory system does</h2>
+      <p class="lede">Whatever framework you use, it is making these choices. Learning memory mostly means learning these trade-offs.</p>
+      <ol class="ops">
+        <li><div><h3>Write: what to store, and when</h3>
+          <ul><li><b>Hot path:</b> the agent saves during the conversation through a "remember" tool.</li>
+          <li><b>Background:</b> a separate process reads transcripts later and extracts memories.</li>
+          <li>Store everything and you get noise. Store too little and you get amnesia.</li></ul></div></li>
+        <li><div><h3>Read: what to load, and when</h3>
+          <ul><li><b>Always loaded:</b> CLAUDE.md, or a user profile in the system prompt.</li>
+          <li><b>Retrieved on demand:</b> search by relevance, recency or importance.</li>
+          <li><b>Agent-pulled:</b> the agent calls <code>search_memory</code> when it decides it needs to.</li>
+          <li>Generative Agents (Park et al., 2023) scores each memory as recency + importance + relevance.</li></ul></div></li>
+        <li><div><h3>Update and consolidate</h3>
+          <ul><li>Merge duplicates, fix contradictions ("moved from Mumbai to Pune"), and turn many episodes into one fact. This is called reflection.</li></ul></div></li>
+        <li><div><h3>Forget</h3>
+          <ul><li>Decay over time, TTLs, deleting wrong memories, and privacy deletion.</li></ul></div></li>
+        <li><div><h3>Compress</h3>
+          <ul><li>Summarize or prune what's in the context window so a long task fits: compaction, context editing, sliding windows.</li></ul></div></li>
+      </ol>
+    </section>
+
+    <section id="track-a" class="track" data-track>
+      <div class="eyebrow">Part 4 · Track A</div>
+      <div class="track-head"><h2>Change Claude Code's memory</h2><span class="count" data-count></span></div>
+      <p class="lede">No code needed. Claude Code is a real production harness, and its memory is mostly plain files you can edit.</p>
+
+      <details class="lab" data-lab="1">
+        <summary><input type="checkbox" class="chk" id="lab-1" aria-label="Mark lab 1 done"><span class="lab-no">LAB 01</span><span class="lab-title">Procedural memory through CLAUDE.md<small>Always-loaded instructions and their precedence</small></span><span class="chev">▶</span></summary>
+        <div class="lab-body">
+          <p>Files Claude Code loads at startup:</p>
+          <ul>
+            <li><code>~/.claude/CLAUDE.md</code>: global, for all projects</li>
+            <li><code>./CLAUDE.md</code>: project level, committed to git</li>
+            <li><code>./CLAUDE.local.md</code>: personal, not committed, where supported</li>
+            <li>CLAUDE.md files in subfolders, loaded when Claude works there</li>
+            <li><code>@path/to/file.md</code> imports another file into CLAUDE.md</li>
+          </ul>
+          <p><b>Exercise:</b> in a test project, add a rule like "Always write commit messages as <code>type(scope): msg</code>". Start a new session, ask for a commit message, and check the rule was followed. Then put a global rule and a project rule in conflict and see which wins.</p>
+          <p class="learn"><b>You learn</b>Always-loaded memory, precedence, and that every line costs tokens on every turn.</p>
+        </div>
+      </details>
+
+      <details class="lab" data-lab="2">
+        <summary><input type="checkbox" class="chk" id="lab-2" aria-label="Mark lab 2 done"><span class="lab-no">LAB 02</span><span class="lab-title">Semantic memory through auto-memory<small>An index file plus one file per fact</small></span><span class="chev">▶</span></summary>
+        <div class="lab-body">
+          <p>Claude Code keeps a per-project memory folder at <code>~/.claude/projects/&lt;project&gt;/memory/</code>: one <code>.md</code> file per fact with frontmatter (name, description, type: user / feedback / project / reference), plus a <code>MEMORY.md</code> index loaded into every session.</p>
+          <p><b>Exercise:</b> say "remember that I prefer pnpm over npm". Open the folder and read what it wrote. Edit it by hand. Delete it and check the memory is gone. Then plant a <em>wrong</em> memory and watch how it affects later sessions.</p>
+          <p class="learn"><b>You learn</b>The index-plus-details pattern, memory types, and how stale or wrong memories cause harm.</p>
+        </div>
+      </details>
+
+      <details class="lab" data-lab="3">
+        <summary><input type="checkbox" class="chk" id="lab-3" aria-label="Mark lab 3 done"><span class="lab-no">LAB 03</span><span class="lab-title">Short-term memory: compact, clear, resume<small>What survives a summary</small></span><span class="chev">▶</span></summary>
+        <div class="lab-body">
+          <ul>
+            <li><code>/compact</code> summarizes the conversation. Add focus, like <code>/compact keep the API design decisions</code>.</li>
+            <li><code>/clear</code> wipes working memory.</li>
+            <li><code>claude --continue</code> and <code>claude --resume</code> reload past sessions, a form of episodic memory.</li>
+          </ul>
+          <p><b>Exercise:</b> have a long session, compact it, then ask about a detail from early on. What survived? Compare with <code>/clear</code>.</p>
+          <p class="learn"><b>You learn</b>Summaries lose information, and what they keep is a design choice.</p>
+        </div>
+      </details>
+
+      <details class="lab" data-lab="4">
+        <summary><input type="checkbox" class="chk" id="lab-4" aria-label="Mark lab 4 done"><span class="lab-no">LAB 04</span><span class="lab-title">Change the harness with hooks<small>The main way to modify Claude Code without forking it</small></span><span class="chev">▶</span></summary>
+        <div class="lab-body">
+          <p>Hooks are scripts the harness runs at lifecycle events, configured in <code>settings.json</code>.</p>
+          <ul>
+            <li><b>SessionStart</b> → print recent git log plus <code>notes/today.md</code>. The output becomes context. You built retrieval at session start.</li>
+            <li><b>PreCompact</b> → save the transcript to <code>episodes/&lt;date&gt;.md</code> before it's summarized. You built episodic memory that survives compaction.</li>
+            <li><b>Stop / SessionEnd</b> → run <code>claude -p "Extract durable facts from this transcript"</code> and append to a facts file. You built background extraction.</li>
+            <li><b>UserPromptSubmit</b> → grep your notes for words in the prompt and inject matches. You built per-turn RAG.</li>
+          </ul>
+          <p class="learn"><b>Tip</b>Ask Claude to use the <code>update-config</code> skill to wire these into settings.json.</p>
+        </div>
+      </details>
+
+      <details class="lab" data-lab="5">
+        <summary><input type="checkbox" class="chk" id="lab-5" aria-label="Mark lab 5 done"><span class="lab-no">LAB 05</span><span class="lab-title">Procedural memory through Skills and subagents<small>Progressive disclosure and memory isolation</small></span><span class="chev">▶</span></summary>
+        <div class="lab-body">
+          <ul>
+            <li><b>Skills</b> are folders with a <code>SKILL.md</code>. Only the description loads up front; the full body loads when relevant. Lots of procedural memory, small context cost.</li>
+            <li><b>Subagents</b> have their own context windows. What does a subagent know about the parent's conversation?</li>
+          </ul>
+          <p><b>Exercise:</b> turn a workflow you repeat into a skill, then compare token use with putting the same text in CLAUDE.md.</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="track-b" class="track" data-track>
+      <div class="eyebrow">Part 4 · Track B</div>
+      <div class="track-head"><h2>Build your own harness (Python)</h2><span class="count" data-count></span></div>
+      <p class="lede">Install with <code>pip install anthropic</code>. Use <code>claude-opus-5-5</code>, or <code>claude-haiku-5-5</code> for cheap experiments.</p>
+
+      <details class="lab" data-lab="6">
+        <summary><input type="checkbox" class="chk" id="lab-6" aria-label="Mark lab 6 done"><span class="lab-no">LAB 06</span><span class="lab-title">Bare loop, no memory<small>See statelessness for yourself</small></span><span class="chev">▶</span></summary>
+        <div class="lab-body">
+          <p>Write a 20-line chat loop that sends only the latest user message. Watch it forget your name. Then append every message to a <code>messages</code> list and watch it remember. This is all that short-term memory is.</p>
+        </div>
+      </details>
+
+      <details class="lab" data-lab="7">
+        <summary><input type="checkbox" class="chk" id="lab-7" aria-label="Mark lab 7 done"><span class="lab-no">LAB 07</span><span class="lab-title">Manage short-term memory by hand<small>Sliding window vs. summary buffer</small></span><span class="chev">▶</span></summary>
+        <div class="lab-body">
+          <p>Write three versions and compare them on a 50-turn conversation:</p>
+          <ul>
+            <li><b>Sliding window:</b> keep only the last N messages.</li>
+            <li><b>Summary buffer:</b> when history passes X tokens, summarize the older turns and replace them.</li>
+            <li><b>Summary plus recent:</b> a running summary followed by the last N turns verbatim.</li>
+          </ul>
+          <p>Measure cost with <code>client.messages.count_tokens</code> and check recall with questions about early turns.</p>
+        </div>
+      </details>
+
+      <details class="lab" data-lab="8">
+        <summary><input type="checkbox" class="chk" id="lab-8" aria-label="Mark lab 8 done"><span class="lab-no">LAB 08</span><span class="lab-title">Long-term memory as a tool<small>Agent-controlled save and search</small></span><span class="chev">▶</span></summary>
+        <div class="lab-body">
+          <p>Give the model your own tools, <code>save_memory(text, type)</code> and <code>search_memory(query)</code>, backed by a JSON file or SQLite. Run the tool loop.</p>
+          <ul>
+            <li>When does the model choose to save? Change the system prompt and watch it change.</li>
+            <li>Search v1: keyword matching. v2: embeddings (e.g. <code>sentence-transformers</code> locally). v3: Generative Agents scoring, <code>α·recency + β·importance + γ·similarity</code>.</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="lab" data-lab="9">
+        <summary><input type="checkbox" class="chk" id="lab-9" aria-label="Mark lab 9 done"><span class="lab-no">LAB 09</span><span class="lab-title">Anthropic's built-in memory tool<small>Claude manages a /memories folder; you supply the storage</small></span><span class="chev">▶</span></summary>
+        <div class="lab-body">
+<pre><code>import anthropic
+from anthropic.lib.tools import BetaAbstractMemoryTool
+
+class FileMemory(BetaAbstractMemoryTool):
+    # Map each command to a real folder on disk (e.g. ./memories)
+    def view(self, command): ...
+    def create(self, command): ...
+    def str_replace(self, command): ...
+    def insert(self, command): ...
+    def delete(self, command): ...
+    def rename(self, command): ...
+
+client = anthropic.Anthropic()
+runner = client.beta.messages.tool_runner(
+    model="claude-opus-5-5",
+    max_tokens=16000,
+    tools=[FileMemory()],
+    messages=[{"role": "user", "content": "Remember I'm learning agent memory, and I prefer Python."}],
+)
+for message in runner:
+    print(message)</code></pre>
+          <p><b>Exercise:</b> start a brand-new conversation and ask "what do you know about me?". Open the folder to see how Claude organized its own memory.</p>
+          <p class="warn"><b>Safety:</b> check paths so the model can't write outside the memory folder.</p>
+        </div>
+      </details>
+
+      <details class="lab" data-lab="10">
+        <summary><input type="checkbox" class="chk" id="lab-10" aria-label="Mark lab 10 done"><span class="lab-no">LAB 10</span><span class="lab-title">Context editing, compaction and caching<small>Managing working memory on long runs</small></span><span class="chev">▶</span></summary>
+        <div class="lab-body">
+          <p><b>Context editing</b> removes old tool results so long agent runs stay small:</p>
+<pre><code>client.beta.messages.create(
+    model="claude-opus-5-5", max_tokens=4096,
+    betas=["context-management-2025-06-27"],
+    context_management={"edits": [{"type": "clear_tool_uses_20250919"}]},
+    tools=[...], messages=[...],
+)</code></pre>
+          <ul>
+            <li><b>Server-side compaction</b> (beta <code>compact-2026-01-12</code>) summarizes near a token threshold. Append the full <code>response.content</code> back into messages, not just the text, or the compaction state is lost.</li>
+            <li><b>Prompt caching:</b> put stable memory (profile, rules) first and volatile memory (retrieved snippets, timestamps) last. Check <code>usage.cache_read_input_tokens</code>.</li>
+          </ul>
+          <p><b>Exercise:</b> run one 100-tool-call task four ways: no management, context editing, compaction, and compaction plus the memory tool. Compare tokens and success rate.</p>
+        </div>
+      </details>
+
+      <details class="lab" data-lab="11">
+        <summary><input type="checkbox" class="chk" id="lab-11" aria-label="Mark lab 11 done"><span class="lab-no">LAB 11</span><span class="lab-title">Reflection and consolidation<small>A "sleep" step between sessions</small></span><span class="chev">▶</span></summary>
+        <div class="lab-body">
+          <p>After each session, a second model call reads the episode log and:</p>
+          <ul>
+            <li>pulls out new semantic facts,</li>
+            <li>merges or overwrites contradicting facts,</li>
+            <li>writes lessons learned, like Reflexion's self-critique, as procedural memory.</li>
+          </ul>
+          <p>Plant contradictions on purpose (change your stated city) and test whether the newest fact wins.</p>
+        </div>
+      </details>
+
+      <details class="lab" data-lab="12">
+        <summary><input type="checkbox" class="chk" id="lab-12" aria-label="Mark lab 12 done"><span class="lab-no">LAB 12</span><span class="lab-title">Evaluate your memory<small>The step most people skip</small></span><span class="chev">▶</span></summary>
+        <div class="lab-body">
+          <p>Write 20 to 30 test cases: "In session 1 the user says X. In session 3, ask Y. The answer should use X." Score:</p>
+          <ul>
+            <li><b>Recall:</b> does it remember what it should?</li>
+            <li><b>Precision:</b> does it bring up irrelevant old facts?</li>
+            <li><b>Staleness:</b> does it use outdated facts?</li>
+            <li><b>Token cost</b> per answer.</li>
+          </ul>
+          <p>Public benchmarks to look at: LongMemEval, LoCoMo, MemoryAgentBench.</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="track-c">
+      <div class="eyebrow">Part 4 · Track C · optional</div>
+      <h2>Compare with existing frameworks</h2>
+      <p class="lede">After building your own, these make much more sense. Try one or two.</p>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Framework</th><th>Main idea</th><th>Try it for</th></tr></thead>
+          <tbody>
+            <tr><td>Letta (MemGPT)</td><td>OS metaphor: core memory blocks in context, archival and recall storage paged in and out</td><td>Agent-managed memory hierarchy</td></tr>
+            <tr><td>Mem0</td><td>Automatic fact extraction plus vector or graph store</td><td>Background extraction and dedup</td></tr>
+            <tr><td>Zep / Graphiti</td><td>Knowledge graph where facts have valid-from and valid-to times</td><td>Facts that change over time</td></tr>
+            <tr><td>LangGraph</td><td>Checkpointers for thread state, plus a namespaced long-term Store</td><td>Thread memory vs. user memory</td></tr>
+            <tr><td>Claude Managed Agents</td><td>Hosted memory stores for server-run agents</td><td>Memory without running storage yourself</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="reading">
+      <div class="eyebrow">Part 5</div>
+      <h2>Reading list, in order</h2>
+      <ol class="reading">
+        <li><b>Generative Agents</b> (Park et al., 2023) <span>memory stream, retrieval scoring, reflection</span></li>
+        <li><b>MemGPT</b> (Packer et al., 2023) <span>virtual context management</span></li>
+        <li><b>Reflexion</b> (Shinn et al., 2023) <span>learning from verbal self-feedback</span></li>
+        <li><b>Voyager</b> (Wang et al., 2023) <span>a skill library as procedural memory</span></li>
+        <li><b>CoALA</b> (Sumers et al., 2023) <span>the unifying taxonomy</span></li>
+        <li><b>Anthropic engineering posts</b> on context engineering and building effective agents, plus the docs for the memory tool, context editing and compaction</li>
+        <li><b>A recent survey</b> <span>search "memory mechanisms LLM agents survey"</span></li>
+      </ol>
+    </section>
+
+    <section id="schedule">
+      <div class="eyebrow">Plan</div>
+      <h2>Six-week plan</h2>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Week</th><th>Do</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Types and operations, then Labs 1–3 (Claude Code files only)</td></tr>
+            <tr><td>2</td><td>Lab 4 (hooks) and Lab 5 (skills and subagents)</td></tr>
+            <tr><td>3</td><td>Labs 6–8: your own harness, short-term then long-term memory</td></tr>
+            <tr><td>4</td><td>Labs 9–10: built-in memory tool and context management</td></tr>
+            <tr><td>5</td><td>Labs 11–12: reflection and evals, then papers 1, 2 and 5</td></tr>
+            <tr><td>6</td><td>Track C: rebuild one lab on Letta or Mem0 and compare</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer>Tick a lab's box when you finish it. Your progress is saved in this browser only.</footer>
+  </main>
+</div>
+
+<script>
+(function(){
+  var KEY = "agent-memory-lab-done";
+  var done = {};
+  try { done = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { done = {}; }
+  var labs = Array.prototype.slice.call(document.querySelectorAll("details.lab"));
+
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (e) {} }
+  function render(){
+    var n = 0;
+    labs.forEach(function(d){
+      var id = d.getAttribute("data-lab"), on = !!done[id];
+      d.classList.toggle("is-done", on);
+      d.querySelector(".chk").checked = on;
+      if (on) n++;
+    });
+    document.getElementById("progressNum").textContent = n + " / " + labs.length;
+    document.getElementById("progressBar").style.width = (n / labs.length * 100) + "%";
+    document.querySelectorAll("[data-track]").forEach(function(t){
+      var ls = t.querySelectorAll("details.lab"), k = 0;
+      ls.forEach(function(d){ if (done[d.getAttribute("data-lab")]) k++; });
+      t.querySelector("[data-count]").textContent = k + " of " + ls.length + " done";
+    });
+  }
+  labs.forEach(function(d){
+    var c = d.querySelector(".chk");
+    c.addEventListener("click", function(e){ e.stopPropagation(); });
+    c.addEventListener("change", function(){
+      var id = d.getAttribute("data-lab");
+      if (c.checked) done[id] = true; else delete done[id];
+      save(); render();
+    });
+  });
+  document.getElementById("resetBtn").addEventListener("click", function(){ done = {}; save(); render(); });
+  render();
+})();
+</script>
+</body>
+</html>

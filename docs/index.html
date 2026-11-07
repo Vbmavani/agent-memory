@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="How I learned AI agent memory in four days by building a chat app one memory type at a time: the path, the pages, the questions and the code.">
+<title>Agent memory, step by step</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Geist:wght@400;600&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/site.css">
+<link rel="stylesheet" href="assets/page.css">
+<style>:root { --tk-max: 1000px }</style>
+</head>
+<body>
+<script src="assets/site.js"></script>
+<main class="wide">
+  <p class="eyebrow">agent-memory · learning site</p>
+  <h1>Agent memory, step by step</h1>
+  <p class="lede">A language model remembers nothing between calls. Everything an agent seems to "remember" is either in its weights or put back into its prompt by the code around it. This site is how I learned to build that code: in four days, one memory type at a time, on a real chat app with a real database.</p>
+  <p>It keeps everything from the journey in one place: the map I started from, the explainers I asked for when I got stuck, what I read and searched, every question I asked, and the app's own docs. Start at the top and use <b>Next</b> at the bottom of each page.</p>
+
+  <figure class="figure">
+    <div class="scroll">
+      <svg class="dd" viewBox="0 0 960 336" style="min-width:880px" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="tl-title tl-desc">
+        <title id="tl-title">Four days of learning agent memory</title>
+        <desc id="tl-desc">A timeline from 3 to 7 November 2026: choosing memory as the next agent component, getting the full map of memory types, building short-term, episodic, semantic and procedural memory in a chat app, learning vectors from scratch and adding search by meaning, then reading Anthropic's memory post and publishing this site.</desc>
+        <defs>
+          <pattern id="tl-dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle class="dots" cx="1" cy="1" r="0.9"/></pattern>
+        </defs>
+        <rect class="bg" width="100%" height="100%"/>
+        <rect width="100%" height="100%" fill="url(#tl-dots)" opacity="0.55"/>
+
+        <!-- time axis -->
+        <line class="s-mu" x1="40" y1="64" x2="920" y2="64" stroke-width="1.2"/>
+        <g>
+          <circle class="f-mu" cx="112" cy="64" r="5"/>
+          <circle class="f-mu" cx="296" cy="64" r="5"/>
+          <circle class="f-ac" cx="480" cy="64" r="7"/>
+          <circle class="f-mu" cx="664" cy="64" r="5"/>
+          <circle class="f-mu" cx="848" cy="64" r="5"/>
+        </g>
+        <text class="tag" x="112" y="40" text-anchor="middle">MON 3 NOV</text>
+        <text class="tag" x="296" y="40" text-anchor="middle">TUE 4 NOV</text>
+        <text class="tag ac" x="480" y="40" text-anchor="middle">WED 5 NOV</text>
+        <text class="tag" x="664" y="40" text-anchor="middle">THU 6 NOV</text>
+        <text class="tag" x="848" y="40" text-anchor="middle">FRI 7 NOV</text>
+
+        <!-- stems -->
+        <line class="s-mu" x1="112" y1="72" x2="112" y2="96" stroke-width="1"/>
+        <line class="s-mu" x1="296" y1="72" x2="296" y2="96" stroke-width="1"/>
+        <line class="s-ac" x1="480" y1="74" x2="480" y2="96" stroke-width="1.2"/>
+        <line class="s-mu" x1="664" y1="72" x2="664" y2="96" stroke-width="1"/>
+        <line class="s-mu" x1="848" y1="72" x2="848" y2="96" stroke-width="1"/>
+
+        <!-- day cards -->
+        <rect class="mask" x="24" y="96" width="176" height="208" rx="6"/>
+        <rect class="backend" x="24" y="96" width="176" height="208" rx="6" stroke-width="1"/>
+        <text class="tag" x="36" y="118">PICK THE TOPIC</text>
+        <text class="nm" x="36" y="140">Components of an agent</text>
+        <text class="sub" x="36" y="160">asked how many parts an</text>
+        <text class="sub" x="36" y="174">agent has; MCP was done,</text>
+        <text class="sub" x="36" y="188">so memory and context</text>
+        <text class="sub" x="36" y="202">engineering came next</text>
+
+        <rect class="mask" x="208" y="96" width="176" height="208" rx="6"/>
+        <rect class="backend" x="208" y="96" width="176" height="208" rx="6" stroke-width="1"/>
+        <text class="tag" x="220" y="118">GET THE MAP</text>
+        <text class="nm" x="220" y="140">Agent Memory Lab</text>
+        <text class="sub" x="220" y="160">6 types, 5 operations,</text>
+        <text class="sub" x="220" y="174">12 labs, a reading list</text>
+        <text class="sub" x="220" y="196">side questions: OpenSearch</text>
+        <text class="sub" x="220" y="210">vs pgvector, are skills</text>
+        <text class="sub" x="220" y="224">procedural memory?</text>
+
+        <rect class="mask" x="392" y="96" width="176" height="208" rx="6"/>
+        <rect class="focal" x="392" y="96" width="176" height="208" rx="6" stroke-width="1.4"/>
+        <text class="tag ac" x="404" y="118">BUILD IT</text>
+        <text class="nm" x="404" y="140">The chat app</text>
+        <text class="sub" x="404" y="160">short-term: chat history</text>
+        <text class="sub" x="404" y="174">episodic: search old chats</text>
+        <text class="sub" x="404" y="188">semantic: facts, one writer</text>
+        <text class="sub" x="404" y="202">Postgres → Supabase</text>
+        <text class="sub" x="404" y="216">procedural: how to work</text>
+        <text class="sub" x="404" y="238">and: how do vector</text>
+        <text class="sub" x="404" y="252">databases work?</text>
+
+        <rect class="mask" x="576" y="96" width="176" height="208" rx="6"/>
+        <rect class="backend" x="576" y="96" width="176" height="208" rx="6" stroke-width="1"/>
+        <text class="tag" x="588" y="118">VECTORS</text>
+        <text class="nm" x="588" y="140">Words into numbers</text>
+        <text class="sub" x="588" y="160">vectors lab, explainer,</text>
+        <text class="sub" x="588" y="174">2-D and 3-D training</text>
+        <text class="sub" x="588" y="188">simulators</text>
+        <text class="sub" x="588" y="210">step 2: search chats by</text>
+        <text class="sub" x="588" y="224">meaning (pgvector)</text>
+
+        <rect class="mask" x="760" y="96" width="176" height="208" rx="6"/>
+        <rect class="backend" x="760" y="96" width="176" height="208" rx="6" stroke-width="1"/>
+        <text class="tag" x="772" y="118">READ AND SHARE</text>
+        <text class="nm" x="772" y="140">How Claude remembers</text>
+        <text class="sub" x="772" y="160">Anthropic's post on memory</text>
+        <text class="sub" x="772" y="174">notes and dreaming</text>
+        <text class="sub" x="772" y="196">this site, then step 3:</text>
+        <text class="sub" x="772" y="210">try mem0</text>
+
+        <text class="leg" x="40" y="326">ALL DATES 2026 · THE HIGHLIGHTED DAY IS WHERE MOST OF THE CODE WAS WRITTEN</text>
+      </svg>
+    </div>
+    <figcaption>The whole journey on one line. The day-by-day log, with times and links, is in <a href="learn/?p=00-how-i-learned">How I learned it</a>.</figcaption>
+  </figure>
+
+  <h2>The learning path</h2>
+  <p class="group">Understand it</p>
+  <ol class="path">
+    <li><a href="learn/"><span class="n">02</span><b>How I learned it <small>8 chapters</small></b><span>The order I went in, what I built each day, what I read and searched, my thinking process, and every question I asked.</span></a></li>
+    <li><a href="reference/memory-lab.html"><span class="n">03</span><b>Agent Memory Lab <small>the map</small></b><span>The first thing I asked for: the six memory types, the five operations every memory system does, and 12 hands-on labs.</span></a></li>
+  </ol>
+  <p class="group">Go deeper</p>
+  <ol class="path">
+    <li><a href="reference/words-into-numbers.html"><span class="n">04</span><b>Words Into Numbers <small>explainer</small></b><span>How text becomes vectors, from zero: a 2-D map, co-occurrence counts, live training, and searching memory by meaning.</span></a></li>
+    <li><a href="https://vbmavani.github.io/vector-visuals/"><span class="n">↗</span><b>Vector visuals <small>simulator</small></b><span>2-D and 3-D training you can step through: random start, one pass at a time, with a summary of each step.</span></a></li>
+    <li><a href="reference/how-claude-remembers.html"><span class="n">05</span><b>How Claude Remembers <small>research</small></b><span>Anthropic's post on the components of agent memory, in plain English: memory notes, the four-layer stack, and dreaming.</span></a></li>
+  </ol>
+  <p class="group">Build it</p>
+  <ol class="path">
+    <li><a href="https://github.com/Vbmavani/agent-memory"><span class="n">↗</span><b>The app <small>code</small></b><span>React + DeepSeek chat app with two Postgres tables. Every memory type below is real code you can run.</span></a></li>
+    <li><a href="learn/?p=app-search"><span class="n">A</span><b>How the app works <small>docs</small></b><span>Search by words then by meaning, the six tools the model can call, and what happens to one message end to end.</span></a></li>
+    <li><a href="artifacts.html"><span class="n">06</span><b>All artifacts <small>index</small></b><span>Every page and artifact from the journey in one list, with where each one lives.</span></a></li>
+  </ol>
+
+  <h2>Memory types, and where each one lives in the app</h2>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Type</th><th>What it is</th><th>In the app</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><b>Parametric</b></td><td>What the model learned in training</td><td>DeepSeek's weights; not changed by the app</td><td>built in</td></tr>
+        <tr><td><b>Working</b></td><td>Everything in one model call</td><td>System prompt, profile, history, tool results</td><td>done</td></tr>
+        <tr><td><b>Short-term</b></td><td>This conversation so far</td><td><code>chats.messages</code>, sent with every message</td><td>done</td></tr>
+        <tr><td><b>Episodic</b></td><td>Past conversations</td><td><code>search_past_chats</code>: by words (step 1), by meaning (step 2)</td><td>done</td></tr>
+        <tr><td><b>Semantic</b></td><td>Lasting facts about the user</td><td><code>users.facts</code>, written by one memory decision per message</td><td>done</td></tr>
+        <tr><td><b>Procedural</b></td><td>How the user wants the agent to work</td><td><code>users.procedures</code>: routines, rules, self-learned lessons</td><td>done</td></tr>
+        <tr><td><b>Vector</b></td><td>Search by meaning</td><td><code>chats.embedding</code>, 384 numbers per chat, pgvector</td><td>step 2 done · mem0 next</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Run it yourself</h2>
+  <p>Needs Node.js 22+, a DeepSeek API key and a Postgres database. Clone <a href="https://github.com/Vbmavani/agent-memory">agent-memory</a>, then follow <a href="https://github.com/Vbmavani/agent-memory#run-it-locally">Run it locally</a> in the README:</p>
+<pre><code>npm install
+npm run embed:chats            # once: gives existing chats their embeddings
+SEARCH_MODE=keyword npm run dev   # step 1: search by words only
+npm run dev                       # step 2: words + meaning (default)</code></pre>
+  <p class="muted">Keys and the database URL are read from the macOS Keychain or environment variables, never from files in the repo.</p>
+</main>
+</body>
+</html>

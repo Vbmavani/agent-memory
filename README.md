@@ -3,15 +3,23 @@
 A small chat app for learning how AI agent memory works, by building each memory type on top of a
 real model (DeepSeek) and a real database (Postgres).
 
-## Explainer pages
+## Start here: the learning site
 
-- **[Words Into Numbers](https://claude.ai/artifact/Vp2BUAVYBPk16tUhb1WpmC)**: an interactive
-  explainer of how text becomes vectors, from zero. It goes from a number line and a 2-D map to
-  counting which words appear together, live toy training, turning a sentence into a point, and
-  searching memory by meaning, then compares the toy with real embedding models. Read it before
-  step 2 of memory search ([docs/search.md](docs/search.md)).
-- **Vectors lab** (local, in this app): http://localhost:9200/vectors.html, words as 3 hand-written
-  numbers you can rotate and compare (see [Vectors lab](#vectors-lab)).
+**[vbmavani.github.io/agent-memory](https://vbmavani.github.io/agent-memory/)** is the whole journey in one place, with
+the same nav bar on every page: how I learned agent memory day by day, what I built, what I read and
+searched, my thinking process, every question I asked, and every explainer I made along the way.
+
+| Page | What it is |
+|---|---|
+| [Overview](https://vbmavani.github.io/agent-memory/) | The four days on one timeline, the learning path, and where each memory type lives in the app |
+| [How I learned it](https://vbmavani.github.io/agent-memory/learn/) | 8 chapters (day-by-day log, the map, building it, vectors, search steps, reading and research, thinking process, question log) plus the app docs |
+| [Agent Memory Lab](https://vbmavani.github.io/agent-memory/reference/memory-lab.html) | The map I started from: memory types, five operations, 12 hands-on labs |
+| [Words Into Numbers](https://vbmavani.github.io/agent-memory/reference/words-into-numbers.html) | How text becomes vectors, from zero; read it before step 2 of memory search |
+| [How Claude Remembers](https://vbmavani.github.io/agent-memory/reference/how-claude-remembers.html) | Anthropic's post on the components of agent memory, in plain English |
+| [All artifacts](https://vbmavani.github.io/agent-memory/artifacts.html) | Every page from the journey, including the [vector visuals](https://vbmavani.github.io/vector-visuals/) simulators |
+
+The site's source is [`docs/`](docs/) (published by `.github/workflows/pages.yml`). The **Vectors lab**
+runs inside the app at http://localhost:9200/vectors.html (see [Vectors lab](#vectors-lab)).
 
 ## Memory types
 
@@ -103,6 +111,8 @@ tool; it runs before every reply. Memory tools only record requests; the single 
 the reply writes them. Every message also gets a background memory decision that is not a tool.
 
 ## Docs
+
+All of these are also on the [learning site](https://vbmavani.github.io/agent-memory/learn/).
 
 - [Searching past chats](docs/search.md): step 1 (SQL word search), then step 2 (embeddings and
   pgvector), hybrid ranking, auto-recall, similarity cut-offs and limits

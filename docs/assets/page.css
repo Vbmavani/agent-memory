@@ -1,0 +1,89 @@
+/* Styles for the hand-written pages (Overview, Artifacts). */
+:root {
+  --bg: #f4f6f8; --sheet: #ffffff; --fg: #161a22; --muted: #5d6573; --rule: #dde2e8;
+  --accent: #1c55b8; --code-bg: #f1f3f6;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1218; --sheet: #151a22; --fg: #e4e8ee; --muted: #98a1b0; --rule: #273040;
+  --accent: #8db5ff; --code-bg: #1b212b; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1218; --sheet: #151a22; --fg: #e4e8ee; --muted: #98a1b0; --rule: #273040;
+  --accent: #8db5ff; --code-bg: #1b212b; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 var(--sans); padding: 0 16px 64px }
+main { max-width: 860px; margin: 0 auto; padding-top: 40px }
+main.wide { max-width: 1000px }
+h1 { font: 600 clamp(30px, 5vw, 42px)/1.1 var(--sans); letter-spacing: -.02em; margin: 0 0 14px; text-wrap: balance }
+h2 { font: 600 24px/1.25 var(--sans); margin: 52px 0 12px; text-wrap: balance }
+h3 { font: 600 17px/1.35 var(--sans); margin: 28px 0 8px }
+p, li { max-width: 72ch }
+p { margin: 0 0 14px }
+.eyebrow { font: 500 12px/1.4 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px }
+.lede { font-size: 18.5px; color: var(--fg); margin-bottom: 18px }
+.muted { color: var(--muted) }
+a { color: var(--accent) }
+code { font: 14px var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 4px }
+pre { margin: 12px 0 8px; padding: 14px 16px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; overflow-x: auto; font: 13.5px/1.6 var(--mono) }
+pre code { background: none; padding: 0; font-size: inherit }
+.src { font: 13px var(--mono); color: var(--muted); margin: 0 0 18px }
+.src a { color: var(--muted) }
+table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 8px 0 16px }
+th { text-align: left; font: 500 12px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--rule) }
+td { padding: 10px; border-bottom: 1px solid var(--rule); vertical-align: top }
+.tbl { overflow-x: auto; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 4px 8px }
+.tbl table { margin: 0; min-width: 720px }
+.tbl tr:last-child td { border-bottom: 0 }
+ol.steps { padding-left: 22px } ol.steps li { margin-bottom: 8px }
+
+/* Learning path cards */
+.path { display: grid; gap: 12px; margin: 16px 0; padding: 0; list-style: none; counter-reset: step }
+.path li { max-width: none }
+.path a { display: grid; grid-template-columns: 44px 1fr; gap: 2px 14px; padding: 16px 18px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; color: inherit; text-decoration: none }
+.path a:hover { border-color: var(--accent) }
+.path .n { grid-row: span 2; font: 600 22px/1 var(--mono); color: var(--muted); padding-top: 3px }
+.path b { font-weight: 600; font-size: 17px }
+.path b small { font: 500 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-left: 8px; vertical-align: 2px }
+.path span:last-child { color: var(--muted); font-size: 15px }
+.group { font: 500 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 24px 0 -4px }
+
+/* Diagrams: Brass Forensic tokens from the diagram-design profile. */
+.figure { margin: 20px 0 8px }
+.figure .scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px }
+.figure svg { display: block; width: 100%; height: auto }
+.figure figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; max-width: 72ch }
+.dd {
+  --p: #f3f1ec; --p2: #e9e5db; --ink: #1a1c22; --mu: #5c616e; --so: #6b707b; --ac: #9c6b16;
+  --act: rgba(156,107,22,.08); --ln: #2f6f5e; --box: #ffffff; --dot: rgba(26,28,34,.10);
+  --i02: rgba(26,28,34,.02); --i03: rgba(26,28,34,.03); --i06: rgba(26,28,34,.06); --i10: rgba(26,28,34,.10);
+  --i20: rgba(26,28,34,.20); --i22: rgba(26,28,34,.22); --i30: rgba(26,28,34,.30); --mu10: rgba(92,97,110,.10);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dd {
+  --p: #101217; --p2: #1a1d24; --ink: #e9ebef; --mu: #9ca2ae; --so: #8b909b; --ac: #d9a23f;
+  --act: rgba(217,162,63,.12); --ln: #4cc99a; --box: #1a1d24; --dot: rgba(233,235,239,.08);
+  --i02: rgba(233,235,239,.04); --i03: rgba(233,235,239,.03); --i06: rgba(233,235,239,.06); --i10: rgba(233,235,239,.10);
+  --i20: rgba(233,235,239,.20); --i22: rgba(233,235,239,.22); --i30: rgba(233,235,239,.30); --mu10: rgba(156,162,174,.10) } }
+.dd .bg, .dd .mask { fill: var(--p) }
+.dd .dots { fill: var(--dot) }
+.dd .backend { fill: var(--box); stroke: var(--ink) }
+.dd .focal { fill: var(--act); stroke: var(--ac) }
+.dd .external { fill: var(--i03); stroke: var(--i30) }
+.dd .input { fill: var(--mu10); stroke: var(--so) }
+.dd .zone { fill: var(--i02); stroke: var(--i10) }
+.dd .frame { fill: var(--i02); stroke: var(--i22) }
+.dd .tab { fill: var(--p); stroke: var(--i22) }
+.dd .life { stroke: var(--i20) }
+.dd .act { fill: var(--i06); stroke: var(--mu) }
+.dd .s-mu { stroke: var(--mu) } .dd .s-ac { stroke: var(--ac) } .dd .s-ln { stroke: var(--ln) }
+.dd .f-mu { fill: var(--mu) } .dd .f-ac { fill: var(--ac) } .dd .f-ln { fill: var(--ln) }
+.dd .nm { font: 600 12px "Geist", system-ui, sans-serif; fill: var(--ink) }
+.dd .sub { font: 400 9px "Geist Mono", ui-monospace, monospace; fill: var(--so) }
+.dd .tag { font: 500 7px "Geist Mono", ui-monospace, monospace; letter-spacing: .18em; fill: var(--so) }
+.dd .tag.ac { fill: var(--ac) }
+.dd .lab { font: 400 8px "Geist Mono", ui-monospace, monospace; letter-spacing: .06em }
+.dd .lab.mu { fill: var(--mu) } .dd .lab.ac { fill: var(--ac) } .dd .lab.ln { fill: var(--ln) }
+.dd .leg { font: 400 9px "Geist Mono", ui-monospace, monospace; fill: var(--so) }
+.dd .rule { stroke: var(--i10) }

@@ -258,6 +258,7 @@ export default function App() {
           <button className="ghost menu" onClick={() => setDrawer(true)}>☰ Chats</button>
           <h1>DeepSeek <span>Playground</span></h1>
           <a className="ghost lab-link" href="/vectors.html">Vectors lab</a>
+          <a className="ghost lab-link" href="https://vbmavani.github.io/agent-memory/" target="_blank" rel="noopener">Learning site ↗</a>
           <label>
             Model
             <select value={model} onChange={(e) => setModel(e.target.value)} disabled={!models.length}>

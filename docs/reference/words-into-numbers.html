@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="An interactive explainer of how text becomes vectors, from zero: a number line, a 2-D map, co-occurrence counts, live toy training, sentences as points, and memory search by meaning.">
+<title>Words Into Numbers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column on graph paper; each step is a band with its text, then its picture. */
+:root {
+  --paper: #f3f4ef; --paper-2: #e8eae2; --card: #fbfbf8; --ink: #181b1f; --muted: #545b63; --soft: #868d95;
+  --rule: #d6d9d0; --grid: rgba(24, 27, 31, .055);
+  --accent: #8e6112; --accent-tint: rgba(142, 97, 18, .1); --link: #2a6a59;
+  --animal: #2f64a3; --food: #a24f22; --vehicle: #6a55a8; --other: #9aa0a6;
+  --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #121417; --paper-2: #1b1e22; --card: #171a1e; --ink: #e8eaec; --muted: #a8aeb5; --soft: #7d848c;
+    --rule: #2d3137; --grid: rgba(232, 234, 236, .05);
+    --accent: #dcaa4c; --accent-tint: rgba(220, 170, 76, .13); --link: #5fc9a3;
+    --animal: #7eaae0; --food: #e8946a; --vehicle: #ab9cea; --other: #737a82;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #121417; --paper-2: #1b1e22; --card: #171a1e; --ink: #e8eaec; --muted: #a8aeb5; --soft: #7d848c;
+  --rule: #2d3137; --grid: rgba(232, 234, 236, .05);
+  --accent: #dcaa4c; --accent-tint: rgba(220, 170, 76, .13); --link: #5fc9a3;
+  --animal: #7eaae0; --food: #e8946a; --vehicle: #ab9cea; --other: #737a82;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink); font: 16px/1.6 var(--body);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.wrap { max-width: 860px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 72px; display: flex; flex-direction: column; gap: 56px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -.015em; }
+h1 { font-size: clamp(34px, 7vw, 56px); line-height: 1.02; font-weight: 800; }
+h2 { font-size: clamp(24px, 4.4vw, 32px); line-height: 1.15; font-weight: 800; }
+h3 { font-size: 18px; font-weight: 600; }
+p { margin: 0; max-width: 66ch; }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.lead { font-size: 18px; color: var(--muted); }
+.lead b, .muted b { color: var(--ink); font-weight: 600; }
+.muted { color: var(--muted); }
+code, .mono { font-family: var(--mono); font-size: .92em; }
+b { font-weight: 600; }
+
+header { display: flex; flex-direction: column; gap: 16px; }
+.route { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 8px; margin: 8px 0 0; padding: 0; list-style: none; counter-reset: s; }
+.route li { counter-increment: s; background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; font-size: 14px; line-height: 1.35; }
+.route li::before { content: counter(s); display: block; font: 500 12px/1 var(--mono); color: var(--accent); margin-bottom: 6px; }
+.route a { color: inherit; text-decoration: none; }
+.route a:hover { text-decoration: underline; }
+
+section { display: flex; flex-direction: column; gap: 16px; scroll-margin-top: 16px; }
+.step-no { font: 500 13px/1 var(--mono); color: var(--accent); }
+.figure { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.scroll { overflow-x: auto; }
+.scroll > svg { display: block; }
+svg text { font-family: var(--body); }
+.cap { font-size: 14px; color: var(--muted); }
+.takeaway { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; max-width: 66ch; }
+.takeaway b { color: var(--ink); }
+.note { background: var(--paper-2); border-radius: 8px; padding: 12px 14px; font-size: 15px; max-width: 70ch; }
+.note h3 { font-size: 15px; margin-bottom: 4px; }
+
+.two { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 720px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.map { width: 100%; height: auto; display: block; touch-action: manipulation; }
+.map .pt { cursor: pointer; }
+.map .pt:focus-visible circle { stroke: var(--accent); stroke-width: 3; }
+
+.calc { font: 13.5px/1.7 var(--mono); background: var(--paper-2); border-radius: 8px; padding: 12px 14px; overflow-x: auto; white-space: pre; margin: 0; }
+.ranks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.ranks li { display: grid; grid-template-columns: 80px 1fr 48px; gap: 8px; align-items: center; }
+.ranks .bar { height: 8px; background: var(--paper-2); border-radius: 4px; overflow: hidden; }
+.ranks .bar span { display: block; height: 100%; background: var(--link); }
+.ranks .v { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; }
+
+.corpus { columns: 2 220px; column-gap: 24px; margin: 0; padding: 0; list-style: none; font-size: 14.5px; }
+.corpus li { break-inside: avoid; padding: 2px 0; }
+.corpus .stop { color: var(--soft); text-decoration: line-through; text-decoration-color: var(--rule); }
+
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button.btn { font: 600 14px var(--body); border-radius: 8px; padding: 8px 14px; border: 1px solid var(--rule); background: var(--card); color: var(--ink); cursor: pointer; }
+button.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--card); }
+button.btn:focus-visible, input:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+button.btn:disabled { opacity: .5; cursor: default; }
+.stat { font: 13px var(--mono); color: var(--muted); }
+.stat b { color: var(--ink); font-weight: 500; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--muted); }
+.field input { font: 16px var(--body); color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; padding: 9px 12px; width: 100%; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { font: 13px var(--body); border: 1px solid var(--rule); background: var(--paper); color: var(--ink); border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+.tokens { display: flex; flex-wrap: wrap; gap: 6px; font: 13px var(--mono); }
+.tokens span { border-radius: 6px; padding: 3px 8px; background: var(--paper-2); }
+.tokens .known { background: var(--accent-tint); color: var(--ink); }
+.tokens .unknown { color: var(--soft); text-decoration: line-through; }
+
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font: 500 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.emb tr.hit td { background: var(--accent-tint); }
+.emb td:first-child { font-weight: 500; }
+.emb-wrap { max-height: 250px; overflow: auto; border: 1px solid var(--rule); border-radius: 8px; }
+.emb thead th { position: sticky; top: 0; background: var(--card); }
+
+.results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.results li { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px; font-size: 15px; }
+.results li.top { border-color: var(--accent); background: var(--accent-tint); }
+.results .v { font: 13px var(--mono); color: var(--muted); align-self: center; }
+
+footer { border-top: 1px solid var(--rule); padding-top: 20px; color: var(--muted); font-size: 15px; display: flex; flex-direction: column; gap: 8px; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+<link rel="stylesheet" href="../assets/site.css">
+<style>
+:root { --tk-max: 1000px }
+body { margin: 0 }
+.tk-origin { max-width: var(--tk-max); margin: 10px auto 0; font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; opacity: .7 }
+.tk-pager { margin-bottom: 48px }
+</style>
+</head>
+<body>
+<script src="../assets/site.js"></script>
+<p class="tk-origin">Originally a Claude artifact, made on 6 Nov 2026 when I got stuck on vectors before building step 2 (search by meaning).</p>
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Vectors from zero</span>
+    <h1>How a word turns into numbers</h1>
+    <p class="lead">
+      Computers can't compare meanings. They can compare numbers. So the trick behind "vector search" and
+      AI memory is to give every word a short list of numbers, chosen so that <b>words with similar meaning get
+      similar numbers</b>. This page builds that idea up one step at a time, with a tiny made-up example you
+      can check on paper.
+    </p>
+    <ol class="route">
+      <li><a href="#one">One number per word</a></li>
+      <li><a href="#two">Two numbers make a map</a></li>
+      <li><a href="#company">Where the numbers come from</a></li>
+      <li><a href="#train">Watch training happen</a></li>
+      <li><a href="#lookup">What happens when you type a word</a></li>
+      <li><a href="#search">Search, and memory</a></li>
+      <li><a href="#real">Toy vs real</a></li>
+    </ol>
+  </header>
+
+  <!-- 1 ----------------------------------------------------------------- -->
+  <section id="one">
+    <span class="step-no">Step 1</span>
+    <h2>Start with one number per word</h2>
+    <p>Pick one question, say <b>"how big is it?"</b>, and score each word from 0 to 1. Now every word is a single
+      number, and you can put the words on a line. Words close together on the line are similar, at least in size.</p>
+    <div class="figure">
+      <div class="scroll">
+        <svg viewBox="0 0 640 150" style="min-width:640px" role="img" aria-labelledby="line-title line-desc">
+          <title id="line-title">Words placed on a size line</title>
+          <desc id="line-desc">Mouse, cat, banana, dog, car and elephant placed from 0 to 1 by size; cat and banana share the value 0.2.</desc>
+          <line x1="40" y1="76" x2="600" y2="76" stroke="var(--muted)" stroke-width="1.5"/>
+          <g font-family="var(--mono)" font-size="11" fill="var(--soft)" text-anchor="middle">
+            <line x1="40" y1="70" x2="40" y2="82" stroke="var(--muted)"/><text x="40" y="140">0 · small</text>
+            <line x1="320" y1="70" x2="320" y2="82" stroke="var(--muted)"/><text x="320" y="140">0.5</text>
+            <line x1="600" y1="70" x2="600" y2="82" stroke="var(--muted)"/><text x="600" y="140">1 · huge</text>
+          </g>
+          <g font-size="14" font-weight="600" text-anchor="middle">
+            <circle cx="68" cy="76" r="5" fill="var(--ink)"/><text x="68" y="54" fill="var(--ink)">mouse</text><text x="68" y="38" font-family="var(--mono)" font-size="11" font-weight="400" fill="var(--soft)">0.05</text>
+            <circle cx="152" cy="76" r="6" fill="var(--accent)"/><text x="152" y="54" fill="var(--accent)">cat</text><text x="152" y="38" font-family="var(--mono)" font-size="11" font-weight="400" fill="var(--accent)">0.2</text>
+            <text x="152" y="104" fill="var(--accent)">banana</text><text x="152" y="120" font-family="var(--mono)" font-size="11" font-weight="400" fill="var(--accent)">0.2</text>
+            <circle cx="264" cy="76" r="5" fill="var(--ink)"/><text x="264" y="104" fill="var(--ink)">dog</text><text x="264" y="120" font-family="var(--mono)" font-size="11" font-weight="400" fill="var(--soft)">0.4</text>
+            <circle cx="432" cy="76" r="5" fill="var(--ink)"/><text x="432" y="54" fill="var(--ink)">car</text><text x="432" y="38" font-family="var(--mono)" font-size="11" font-weight="400" fill="var(--soft)">0.7</text>
+            <circle cx="600" cy="76" r="5" fill="var(--ink)"/><text x="600" y="54" fill="var(--ink)">elephant</text><text x="600" y="38" font-family="var(--mono)" font-size="11" font-weight="400" fill="var(--soft)">1.0</text>
+          </g>
+        </svg>
+      </div>
+      <p class="cap">One question, one number. A vector with one number in it.</p>
+    </div>
+    <p class="takeaway"><b>The problem:</b> cat and banana both score 0.2, so with one number they look identical.
+      One number can only describe one thing about a word. The fix is to ask more questions.</p>
+  </section>
+
+  <!-- 2 ----------------------------------------------------------------- -->
+  <section id="two">
+    <span class="step-no">Step 2</span>
+    <h2>Two numbers turn the line into a map</h2>
+    <p>Ask two questions instead: <b>"how much is it an animal?"</b> and <b>"how much is it food?"</b>. Each word is now
+      a pair of numbers, like <code>cat = [0.9, 0.1]</code>. A pair of numbers is a point on a map, so cat and banana
+      finally land in different places. This pair is what people mean by a <b>vector</b>: a list of numbers.</p>
+    <div class="figure">
+      <div class="two">
+        <svg id="map2" class="map" viewBox="0 0 400 400" role="img" aria-labelledby="map2-title map2-desc">
+          <title id="map2-title">Words on a two-number map</title>
+          <desc id="map2-desc">Animals sit at the right, foods at the top, vehicles near the bottom-left corner, chicken in between.</desc>
+        </svg>
+        <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+          <p class="cap">Tap a word to pick it, then tap a second word to compare. The line between them is their
+            <b>distance</b>: short line, similar meaning.</p>
+          <pre class="calc" id="calc2"></pre>
+          <h3 id="rank2-title">Closest to cat</h3>
+          <ul class="ranks" id="rank2"></ul>
+        </div>
+      </div>
+    </div>
+    <p class="takeaway"><b>Closeness is the whole idea.</b> "Similar meaning" becomes "short distance on the map", which
+      a computer can calculate in a microsecond. Notice car and bus sit on top of each other: two questions can't tell
+      them apart. Add a third question ("how big?") and you get the 3-D Vectors lab in your app.
+      Real systems use hundreds of numbers.</p>
+  </section>
+
+  <!-- 3 ----------------------------------------------------------------- -->
+  <section id="company">
+    <span class="step-no">Step 3</span>
+    <h2>But who writes the numbers?</h2>
+    <p>So far a person picked the questions and the scores. That can't work for 100,000 words. Real systems use one
+      simple observation instead: <b>words that appear in the same kind of sentences mean similar things.</b>
+      You can guess what "kitten" means without a dictionary, because it shows up where "cat" shows up.</p>
+    <div class="figure">
+      <h3>The whole training text for this page: 19 sentences</h3>
+      <ul class="corpus" id="corpus"></ul>
+      <p class="cap">Little words like <span class="mono">the, a, I, is</span> appear everywhere and say nothing, so they are skipped.</p>
+    </div>
+    <p>Now just <b>count</b>. For each word, count how often it appears in a sentence together with each other word.</p>
+    <div class="figure">
+      <div class="scroll"><svg id="heat" role="img" aria-labelledby="heat-title heat-desc">
+        <title id="heat-title">How often words appear together</title>
+        <desc id="heat-desc">Counts of each main word appearing in the same sentence as each context word; cat and dog rows look alike, apple and banana rows look alike, car and bus rows look alike.</desc>
+      </svg></div>
+      <p class="cap">Darker cell = they appear together more often. Read across a row: that row of counts already is a vector for the word.</p>
+    </div>
+    <p class="takeaway"><b>Rows that look alike belong to words that mean alike.</b> cat and dog both appear with
+      <i>chases, drinks, sleeps, sofa</i>. car and bus both appear with <i>drive, fuel, fast</i>. Nobody told the
+      computer that cats and dogs are animals. It came out of the counting. The catch: a real vocabulary would make
+      each row 100,000 numbers long. Training squeezes that down to a few numbers per word.</p>
+  </section>
+
+  <!-- 4 ----------------------------------------------------------------- -->
+  <section id="train">
+    <span class="step-no">Step 4</span>
+    <h2>Training: start random, then nudge</h2>
+    <p>Training starts by giving every word <b>two random numbers</b>, so the map is a mess. Then it reads the sentences
+      over and over and repeats one small rule:</p>
+    <div class="figure">
+      <div class="scroll">
+        <svg viewBox="0 0 664 176" style="min-width:664px" role="img" aria-labelledby="loop-title loop-desc">
+          <title id="loop-title">The training rule</title>
+          <desc id="loop-desc">Read one sentence, pull its words closer together, push a random word away, then move on to the next sentence and repeat.</desc>
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker>
+          </defs>
+          <line x1="212" y1="56" x2="236" y2="56" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr)"/>
+          <line x1="428" y1="56" x2="452" y2="56" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr)"/>
+          <path d="M560 88 V124 Q560 132 552 132 H128 Q120 132 120 124 V92" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr)"/>
+          <rect x="268" y="144" width="128" height="20" fill="var(--card)"/>
+          <text x="332" y="158" text-anchor="middle" font-family="var(--mono)" font-size="11" fill="var(--muted)" letter-spacing=".06em">NEXT SENTENCE</text>
+          <rect x="24" y="24" width="188" height="64" rx="6" fill="var(--card)" stroke="var(--rule)" stroke-width="1.5"/>
+          <text x="40" y="50" font-size="15" font-weight="600" fill="var(--ink)">Read one sentence</text>
+          <text x="40" y="72" font-family="var(--mono)" font-size="11" fill="var(--soft)">"cat drinks milk"</text>
+          <rect x="240" y="24" width="188" height="64" rx="6" fill="var(--accent-tint)" stroke="var(--accent)" stroke-width="1.5"/>
+          <text x="256" y="50" font-size="15" font-weight="600" fill="var(--ink)">Pull its words closer</text>
+          <text x="256" y="72" font-family="var(--mono)" font-size="11" fill="var(--accent)">cat ← → milk</text>
+          <rect x="456" y="24" width="188" height="64" rx="6" fill="var(--card)" stroke="var(--rule)" stroke-width="1.5"/>
+          <text x="472" y="50" font-size="15" font-weight="600" fill="var(--ink)">Push a random word away</text>
+          <text x="472" y="72" font-family="var(--mono)" font-size="11" fill="var(--soft)">cat → ← fuel</text>
+        </svg>
+      </div>
+      <p class="cap">"Pull" means: move the two points a little toward each other. "Push" means: move a random pair a little apart, so everything doesn't collapse into one dot.</p>
+    </div>
+    <div class="figure">
+      <div class="two">
+        <svg id="trainmap" class="map" viewBox="0 0 400 400" role="img" aria-labelledby="train-title train-desc">
+          <title id="train-title">Word positions during training</title>
+          <desc id="train-desc">All words start at random positions; as training runs, animals, foods and vehicles gather into three groups.</desc>
+        </svg>
+        <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+          <div class="controls">
+            <button class="btn primary" id="play">Train</button>
+            <button class="btn" id="stepbtn">One pass</button>
+            <button class="btn" id="reset">New random start</button>
+          </div>
+          <p class="stat" id="tstat"></p>
+          <div class="legend">
+            <span style="--c:var(--animal)">animals</span><span style="--c:var(--food)">food</span>
+            <span style="--c:var(--vehicle)">vehicles</span><span style="--c:var(--other)">other words</span>
+          </div>
+          <p class="cap">Each pass reads all 19 sentences once. Press <b>Train</b> and watch: nobody tells it which words are
+            animals, yet cat, dog and mouse drift together, and so do apple and banana, and car and bus.</p>
+          <p class="cap"><b>Look at the axes:</b> after training they have no names. "Number 1" doesn't mean "animal".
+            Only the positions relative to each other mean anything.</p>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <h3>How the real ones are trained</h3>
+      <p>Exactly this pull-and-push idea, scaled up. <b>Word2vec</b> (2013) learned word numbers by guessing which words
+        appear next to each other in billions of sentences. Modern <b>embedding models</b> are shown millions of pairs that
+        belong together, like a question and its answer or a title and its article, and pull them together while pushing
+        unrelated texts apart. Instead of moving points directly, they adjust a neural network, but the goal is the same:
+        things that go together end up close.</p>
+    </div>
+  </section>
+
+  <!-- 5 ----------------------------------------------------------------- -->
+  <section id="lookup">
+    <span class="step-no">Step 5</span>
+    <h2>What happens when you type a word</h2>
+    <p>Training is done once, ahead of time. What's left is a <b>table</b>: one row per word, with that word's numbers.
+      When you type a word, nothing clever happens. The computer finds the word's row and reads its numbers.</p>
+    <div class="figure">
+      <div class="scroll">
+        <svg viewBox="0 0 760 132" style="min-width:760px" role="img" aria-labelledby="flow-title flow-desc">
+          <title id="flow-title">From a typed word to its numbers</title>
+          <desc id="flow-desc">The typed word is found in the word list, its row in the number table is read, and those numbers are its point on the map.</desc>
+          <defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+          <line x1="164" y1="64" x2="192" y2="64" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"/>
+          <line x1="360" y1="64" x2="388" y2="64" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"/>
+          <line x1="556" y1="64" x2="584" y2="64" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"/>
+          <rect x="16" y="28" width="148" height="72" rx="6" fill="var(--card)" stroke="var(--rule)" stroke-width="1.5"/>
+          <text x="32" y="56" font-size="15" font-weight="600" fill="var(--ink)">You type</text>
+          <text x="32" y="80" font-family="var(--mono)" font-size="13" fill="var(--muted)" id="f-word">"cat"</text>
+          <rect x="196" y="28" width="164" height="72" rx="6" fill="var(--card)" stroke="var(--rule)" stroke-width="1.5"/>
+          <text x="212" y="56" font-size="15" font-weight="600" fill="var(--ink)">Find it in the list</text>
+          <text x="212" y="80" font-family="var(--mono)" font-size="13" fill="var(--muted)" id="f-id">word #1</text>
+          <rect x="392" y="28" width="164" height="72" rx="6" fill="var(--accent-tint)" stroke="var(--accent)" stroke-width="1.5"/>
+          <text x="408" y="56" font-size="15" font-weight="600" fill="var(--ink)">Read its table row</text>
+          <text x="408" y="80" font-family="var(--mono)" font-size="13" fill="var(--accent)" id="f-row">row 1</text>
+          <rect x="588" y="28" width="156" height="72" rx="6" fill="var(--card)" stroke="var(--link)" stroke-width="1.5"/>
+          <text x="604" y="56" font-size="15" font-weight="600" fill="var(--ink)">Its numbers</text>
+          <text x="604" y="80" font-family="var(--mono)" font-size="13" fill="var(--link)" id="f-vec">[0.00, 0.00]</text>
+        </svg>
+      </div>
+    </div>
+    <div class="figure">
+      <div class="two">
+        <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+          <label class="field" for="sent">Type a word or a short sentence
+            <input id="sent" value="the cat drinks milk" autocomplete="off" spellcheck="false">
+          </label>
+          <div class="chips" id="sentchips"></div>
+          <div class="tokens" id="toks"></div>
+          <pre class="calc" id="avgcalc"></pre>
+          <h3>The number table (after training)</h3>
+          <div class="emb-wrap"><table class="emb"><thead><tr><th class="n">#</th><th>word</th><th class="n">number 1</th><th class="n">number 2</th></tr></thead><tbody id="embrows"></tbody></table></div>
+        </div>
+        <svg id="sentmap" class="map" viewBox="0 0 400 400" role="img" aria-labelledby="sent-title sent-desc">
+          <title id="sent-title">Where your sentence lands</title>
+          <desc id="sent-desc">Each known word of the sentence is shown on the trained map, with a star at the average of their positions.</desc>
+        </svg>
+      </div>
+    </div>
+    <p class="takeaway"><b>For a sentence, the simplest method is to average its words' numbers.</b> The star on the map
+      is that average: one point for the whole sentence. Words that aren't in the table are skipped (real systems split
+      them into smaller known pieces instead).</p>
+    <div class="note">
+      <h3>One difference in real models</h3>
+      <p>Here a word always gets the same numbers. Real embedding models read the <b>whole sentence first</b>, then
+        produce the numbers. So "bank" in "river bank" and in "bank account" gets different numbers, because the
+        words around it are different. The output is still just a list of numbers, about 1,000 of them.</p>
+    </div>
+  </section>
+
+  <!-- 6 ----------------------------------------------------------------- -->
+  <section id="search">
+    <span class="step-no">Step 6</span>
+    <h2>Search is "find the nearest point". That's memory.</h2>
+    <p>Once anything can become a point, searching by meaning is easy. Save each note together with its point. When a
+      question comes in, turn it into a point too and pick the saved notes closest to it. No keyword has to match.</p>
+    <div class="figure">
+      <div class="scroll">
+        <svg viewBox="0 0 760 236" style="min-width:760px" role="img" aria-labelledby="mem-title mem-desc">
+          <title id="mem-title">Saving a note and asking a question</title>
+          <desc id="mem-desc">A note is turned into numbers and saved; later a question is turned into numbers, compared with every saved point, and the closest notes come back.</desc>
+          <defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+          <text x="16" y="20" font-family="var(--mono)" font-size="11" fill="var(--soft)" letter-spacing=".08em">WHEN SAVING</text>
+          <text x="16" y="140" font-family="var(--mono)" font-size="11" fill="var(--soft)" letter-spacing=".08em">WHEN ASKING</text>
+          <line x1="172" y1="64" x2="200" y2="64" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"/>
+          <line x1="364" y1="64" x2="392" y2="64" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"/>
+          <line x1="172" y1="184" x2="200" y2="184" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"/>
+          <line x1="364" y1="184" x2="392" y2="184" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"/>
+          <line x1="564" y1="184" x2="592" y2="184" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"/>
+          <line x1="478" y1="92" x2="478" y2="152" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arr3)"/>
+          <rect x="488" y="112" width="104" height="20" fill="var(--card)"/>
+          <text x="492" y="126" font-family="var(--mono)" font-size="11" fill="var(--muted)" letter-spacing=".06em">ALL SAVED</text>
+          <rect x="16" y="36" width="156" height="56" rx="6" fill="var(--card)" stroke="var(--rule)" stroke-width="1.5"/>
+          <text x="32" y="60" font-size="15" font-weight="600" fill="var(--ink)">A note</text>
+          <text x="32" y="80" font-family="var(--mono)" font-size="11" fill="var(--soft)">"cat drinks milk"</text>
+          <rect x="204" y="36" width="160" height="56" rx="6" fill="var(--card)" stroke="var(--rule)" stroke-width="1.5"/>
+          <text x="220" y="60" font-size="15" font-weight="600" fill="var(--ink)">Turn into numbers</text>
+          <text x="220" y="80" font-family="var(--mono)" font-size="11" fill="var(--soft)">step 5</text>
+          <rect x="396" y="36" width="168" height="56" rx="6" fill="var(--paper-2)" stroke="var(--muted)" stroke-width="1.5"/>
+          <text x="412" y="60" font-size="15" font-weight="600" fill="var(--ink)">Save note + point</text>
+          <text x="412" y="80" font-family="var(--mono)" font-size="11" fill="var(--soft)">a database row</text>
+          <rect x="16" y="156" width="156" height="56" rx="6" fill="var(--card)" stroke="var(--rule)" stroke-width="1.5"/>
+          <text x="32" y="180" font-size="15" font-weight="600" fill="var(--ink)">A question</text>
+          <text x="32" y="200" font-family="var(--mono)" font-size="11" fill="var(--soft)">"who chases the mouse"</text>
+          <rect x="204" y="156" width="160" height="56" rx="6" fill="var(--card)" stroke="var(--rule)" stroke-width="1.5"/>
+          <text x="220" y="180" font-size="15" font-weight="600" fill="var(--ink)">Turn into numbers</text>
+          <text x="220" y="200" font-family="var(--mono)" font-size="11" fill="var(--soft)">same way</text>
+          <rect x="396" y="156" width="168" height="56" rx="6" fill="var(--accent-tint)" stroke="var(--accent)" stroke-width="1.5"/>
+          <text x="412" y="180" font-size="15" font-weight="600" fill="var(--ink)">Measure distances</text>
+          <text x="412" y="200" font-family="var(--mono)" font-size="11" fill="var(--accent)">to every saved point</text>
+          <rect x="596" y="156" width="148" height="56" rx="6" fill="var(--card)" stroke="var(--link)" stroke-width="1.5"/>
+          <text x="612" y="180" font-size="15" font-weight="600" fill="var(--ink)">Closest notes</text>
+          <text x="612" y="200" font-family="var(--mono)" font-size="11" fill="var(--link)">sent to the AI</text>
+        </svg>
+      </div>
+    </div>
+    <div class="figure">
+      <div class="two">
+        <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+          <h3>Saved notes</h3>
+          <ul class="results" id="notes"></ul>
+          <label class="field" for="q">Ask something
+            <input id="q" value="who chases the mouse" autocomplete="off" spellcheck="false">
+          </label>
+          <div class="chips" id="qchips"></div>
+          <p class="cap" id="qinfo"></p>
+        </div>
+        <svg id="qmap" class="map" viewBox="0 0 400 400" role="img" aria-labelledby="q-title q-desc">
+          <title id="q-title">Question and saved notes on the map</title>
+          <desc id="q-desc">Each saved note is a point; the question is a star; the closest note is highlighted.</desc>
+        </svg>
+      </div>
+    </div>
+    <p class="takeaway"><b>This is how vector memory works in an AI app.</b> Your agent-memory app currently finds old chats by
+      matching keywords. With vectors it could find "I'm vegetarian" when you ask "what should I cook?", because the two
+      land near each other even though they share no words.</p>
+  </section>
+
+  <!-- 7 ----------------------------------------------------------------- -->
+  <section id="real">
+    <span class="step-no">Step 7</span>
+    <h2>This toy vs the real thing</h2>
+    <p>Every step on this page is the real method, just smaller.</p>
+    <div class="figure scroll">
+      <table>
+        <thead><tr><th></th><th>This page</th><th>A real embedding model</th></tr></thead>
+        <tbody>
+          <tr><td><b>Numbers per word or text</b></td><td>2</td><td>about 384 to 3,000</td></tr>
+          <tr><td><b>Words it knows</b></td><td id="vocabn">24</td><td>about 100,000 word pieces</td></tr>
+          <tr><td><b>Training text</b></td><td>19 sentences</td><td>billions of sentences and text pairs</td></tr>
+          <tr><td><b>How it learns</b></td><td>pull words seen together, push random ones apart</td><td>the same idea, by adjusting a neural network</td></tr>
+          <tr><td><b>A whole sentence</b></td><td>average of its words</td><td>reads the whole sentence, so context changes the numbers</td></tr>
+          <tr><td><b>"Similar"</b></td><td>short distance on the map</td><td>usually the angle between the arrows (cosine similarity), as in the Vectors lab</td></tr>
+          <tr><td><b>Training cost</b></td><td>a fraction of a second, in your browser</td><td>days on many GPUs, done once by the provider</td></tr>
+          <tr><td><b>Using it</b></td><td>read a row of the table</td><td>one API call per text; you store the numbers yourself</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <p><b>What to remember:</b> a vector is a list of numbers. Training places words so that words used in similar
+      sentences get similar numbers. After that, turning text into numbers is a lookup, and searching by meaning is
+      finding the nearest points.</p>
+    <p>All the numbers on this page are calculated live in your browser from the 19 sentences in step 3.</p>
+  </footer>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id)
+  const f2 = (x) => (Object.is(Math.round(x * 100) / 100, -0) ? 0 : x).toFixed(2)
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+  // ---------- shared map drawing (400 x 400 viewBox) ----------
+  // pts: [{name, p:[x,y], color, r, bold, star}]; range: [min, max] for both axes
+  function drawMap(svg, { pts, range, axes, lines = [], onPick }) {
+    const [lo, hi] = range, pad = 36, W = 400
+    const X = (v) => pad + ((v - lo) / (hi - lo)) * (W - pad * 2)
+    const Y = (v) => W - pad - ((v - lo) / (hi - lo)) * (W - pad * 2)
+    let s = svg.dataset.head ?? (svg.dataset.head = svg.innerHTML) // keep the <title>/<desc> on every redraw
+    for (let i = 0; i <= 4; i++) {
+      const v = lo + ((hi - lo) * i) / 4
+      s += `<line x1="${X(v)}" y1="${pad}" x2="${X(v)}" y2="${W - pad}" stroke="var(--rule)" stroke-width="1"/>`
+      s += `<line x1="${pad}" y1="${Y(v)}" x2="${W - pad}" y2="${Y(v)}" stroke="var(--rule)" stroke-width="1"/>`
+      s += `<text x="${X(v)}" y="${W - pad + 16}" text-anchor="middle" font-family="var(--mono)" font-size="10" fill="var(--soft)">${+v.toFixed(2)}</text>`
+      s += `<text x="${pad - 6}" y="${Y(v) + 3}" text-anchor="end" font-family="var(--mono)" font-size="10" fill="var(--soft)">${+v.toFixed(2)}</text>`
+    }
+    s += `<text x="${W - pad}" y="${W - 6}" text-anchor="end" font-size="12" font-weight="600" fill="var(--muted)">${axes[0]} →</text>`
+    s += `<text x="${pad}" y="${pad - 12}" font-size="12" font-weight="600" fill="var(--muted)">↑ ${axes[1]}</text>`
+    for (const [a, b, color, dash] of lines) {
+      s += `<line x1="${X(a[0])}" y1="${Y(a[1])}" x2="${X(b[0])}" y2="${Y(b[1])}" stroke="${color}" stroke-width="2" ${dash ? 'stroke-dasharray="5,4"' : ''}/>`
+    }
+    // marks first, then labels placed where they hit no other label or dot
+    const sp = pts.map((pt) => ({ ...pt, x: X(pt.p[0]), y: Y(pt.p[1]), r: pt.r ?? 5 }))
+    const boxes = sp.map((q) => ({ x1: q.x - q.r - 2, y1: q.y - q.r - 2, x2: q.x + q.r + 2, y2: q.y + q.r + 2 }))
+    const hit = (b) => b.x1 < 2 || b.x2 > W - 2 || b.y1 < 2 || b.y2 > W - 2 || boxes.some((o) => b.x1 < o.x2 && b.x2 > o.x1 && b.y1 < o.y2 && b.y2 > o.y1)
+    const labels = []
+    for (const q of sp) {
+      if (!q.name) { labels.push(''); continue }
+      const size = q.bold ? 14 : 12.5
+      const w = q.name.length * size * 0.56, h = size
+      const g = q.r + 4
+      const cands = [[g, -4, 'start'], [g, 12, 'start'], [-g, -4, 'end'], [-g, 12, 'end'], [0, -g - 2, 'middle'], [0, g + h, 'middle'],
+        [g, -16, 'start'], [-g, -16, 'end'], [g, 24, 'start'], [-g, 24, 'end'], [0, -g - 16, 'middle'], [0, g + h + 14, 'middle']]
+      let chosen = null
+      for (const [dx, dy, anchor] of cands) {
+        const lx = q.x + dx, ly = q.y + dy
+        const x1 = anchor === 'start' ? lx : anchor === 'end' ? lx - w : lx - w / 2
+        const b = { x1, y1: ly - h + 2, x2: x1 + w, y2: ly + 3 }
+        if (!hit(b)) { chosen = { lx, ly, anchor, b }; break }
+      }
+      if (!chosen) { const lx = q.x + g, ly = q.y - 4; chosen = { lx, ly, anchor: 'start', b: { x1: lx, y1: ly - h, x2: lx + w, y2: ly } } }
+      boxes.push(chosen.b)
+      labels.push(`<text x="${chosen.lx.toFixed(1)}" y="${chosen.ly.toFixed(1)}" text-anchor="${chosen.anchor}" font-size="${size}" font-weight="${q.bold ? 600 : 400}" fill="${q.bold ? q.color : 'var(--muted)'}" paint-order="stroke" stroke="var(--card)" stroke-width="3">${esc(q.name)}</text>`)
+    }
+    sp.forEach((q, i) => {
+      const g = onPick ? `<g class="pt" tabindex="0" role="button" aria-label="${esc(q.name)}" data-name="${esc(q.name)}">` : '<g>'
+      const mark = q.star
+        ? `<path d="${star(q.x, q.y, 9)}" fill="${q.color}" stroke="var(--card)" stroke-width="1.5"/>`
+        : `<circle cx="${q.x}" cy="${q.y}" r="${q.r}" fill="${q.color}" stroke="var(--card)" stroke-width="1.5"/>`
+      s += `${g}${onPick ? `<circle cx="${q.x}" cy="${q.y}" r="16" fill="transparent"/>` : ''}${mark}${labels[i]}</g>`
+    })
+    svg.innerHTML = s
+    if (onPick) svg.querySelectorAll('.pt').forEach((el) => {
+      el.addEventListener('click', () => onPick(el.dataset.name))
+      el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(el.dataset.name) } })
+    })
+  }
+  function star(cx, cy, r) {
+    let d = ''
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / 5, rr = i % 2 ? r * 0.45 : r
+      d += `${i ? 'L' : 'M'}${(cx + rr * Math.cos(a)).toFixed(1)},${(cy + rr * Math.sin(a)).toFixed(1)}`
+    }
+    return d + 'Z'
+  }
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1])
+  const GROUP = { cat: 'animal', dog: 'animal', mouse: 'animal', chicken: 'both', apple: 'food', banana: 'food', car: 'vehicle', bus: 'vehicle' }
+  const colorOf = (w) => ({ animal: 'var(--animal)', food: 'var(--food)', vehicle: 'var(--vehicle)', both: 'var(--accent)' }[GROUP[w]] ?? 'var(--other)')
+
+  // ---------- step 2: hand-made 2-number map ----------
+  const HAND = { cat: [0.9, 0.1], dog: [0.8, 0.2], mouse: [0.95, 0.02], chicken: [0.7, 0.7], apple: [0.02, 0.85], banana: [0.1, 0.95], car: [0.04, 0], bus: [0, 0.05] }
+  let pickA = 'cat', pickB = 'apple', nextSlot = 'B'
+  function renderStep2() {
+    const a = HAND[pickA], b = HAND[pickB]
+    drawMap($('map2'), {
+      range: [0, 1], axes: ['animal', 'food'],
+      lines: [[a, b, 'var(--accent)']],
+      pts: Object.entries(HAND).map(([name, p]) => ({ name, p, color: name === pickA || name === pickB ? 'var(--accent)' : colorOf(name), bold: name === pickA || name === pickB, r: name === pickA || name === pickB ? 7 : 5 })),
+      onPick: (n) => {
+        if (n === pickA || n === pickB) return
+        if (nextSlot === 'A') { pickA = n; nextSlot = 'B' } else { pickB = n; nextSlot = 'A' }
+        renderStep2()
+      },
+    })
+    const d = dist(a, b)
+    $('calc2').textContent =
+`${pickA.padEnd(8)} = [${a.map(f2).join(', ')}]
+${pickB.padEnd(8)} = [${b.map(f2).join(', ')}]
+
+gap across = ${f2(Math.abs(a[0] - b[0]))}
+gap up     = ${f2(Math.abs(a[1] - b[1]))}
+distance   = √(${f2(Math.abs(a[0] - b[0]))}² + ${f2(Math.abs(a[1] - b[1]))}²)
+           = ${f2(d)}  ${d < 0.25 ? 'short: very similar' : d < 0.8 ? 'medium: a bit similar' : 'long: unrelated'}`
+    $('rank2-title').textContent = `Closest to ${pickA}`
+    const ranked = Object.entries(HAND).filter(([n]) => n !== pickA).map(([n, p]) => [n, dist(a, p)]).sort((x, y) => x[1] - y[1])
+    $('rank2').innerHTML = ranked.map(([n, v]) => `<li><span>${n}</span><span class="bar"><span style="width:${Math.max(4, 100 - (v / 1.42) * 100)}%"></span></span><span class="v">${f2(v)}</span></li>`).join('')
+  }
+
+  // ---------- step 3: the training text and the counts ----------
+  const SENTENCES = [
+    'the cat chases the mouse', 'the dog chases the cat', 'the cat drinks milk', 'the dog drinks water',
+    'the cat sleeps on the sofa', 'the dog sleeps on the sofa', 'the mouse eats cheese',
+    'I eat an apple', 'I eat a banana', 'an apple is sweet', 'a banana is sweet', 'I peel the banana', 'I peel the apple',
+    'I drive the car', 'I drive the bus', 'the car needs fuel', 'the bus needs fuel', 'the bus is fast', 'the car is fast',
+  ]
+  const STOP = new Set(['the', 'a', 'an', 'i', 'on', 'is'])
+  const toks = (s) => s.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean)
+  const docs = SENTENCES.map((s) => toks(s).filter((w) => !STOP.has(w)))
+  const VOCAB = [...new Set(docs.flat())]
+  const PAIRS = docs.flatMap((d) => d.flatMap((a, i) => d.slice(i + 1).map((b) => [a, b])))
+  $('vocabn').textContent = String(VOCAB.length)
+  $('corpus').innerHTML = SENTENCES.map((s) => `<li>${s.split(' ').map((w) => STOP.has(w.toLowerCase()) ? `<span class="stop">${w}</span>` : w).join(' ')}</li>`).join('')
+
+  function renderHeat() {
+    const rows = ['cat', 'dog', 'apple', 'banana', 'car', 'bus']
+    const cols = ['chases', 'drinks', 'sleeps', 'sofa', 'eat', 'sweet', 'peel', 'drive', 'fuel', 'fast']
+    const count = (a, b) => docs.filter((d) => d.includes(a) && d.includes(b)).length
+    const cw = 52, ch = 34, left = 84, top = 64
+    const W = left + cols.length * cw + 16, H = top + rows.length * ch + 16
+    const svg = $('heat')
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`)
+    svg.style.minWidth = W + 'px'
+    let s = svg.dataset.head ?? (svg.dataset.head = svg.innerHTML)
+    cols.forEach((c, j) => { s += `<text x="${left + j * cw + cw / 2}" y="${top - 12}" text-anchor="middle" font-family="var(--mono)" font-size="11" fill="var(--muted)">${c}</text>` })
+    rows.forEach((r, i) => {
+      s += `<text x="${left - 12}" y="${top + i * ch + ch / 2 + 5}" text-anchor="end" font-size="14" font-weight="600" fill="${colorOf(r)}">${r}</text>`
+      cols.forEach((c, j) => {
+        const n = count(r, c)
+        s += `<rect x="${left + j * cw + 2}" y="${top + i * ch + 2}" width="${cw - 4}" height="${ch - 4}" rx="3" fill="var(--link)" fill-opacity="${n ? 0.25 + 0.6 * Math.min(1, n / 2) : 0}" stroke="var(--rule)"/>`
+        s += `<text x="${left + j * cw + cw / 2}" y="${top + i * ch + ch / 2 + 4}" text-anchor="middle" font-family="var(--mono)" font-size="12" fill="${n ? 'var(--ink)' : 'var(--soft)'}">${n}</text>`
+      })
+      if (i % 2 === 1 && i < rows.length) s += `<line x1="${left}" y1="${top + (i + 1) * ch}" x2="${left + cols.length * cw}" y2="${top + (i + 1) * ch}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3,3"/>`
+    })
+    s += `<text x="${left}" y="22" font-family="var(--mono)" font-size="11" fill="var(--soft)" letter-spacing=".06em">APPEARS IN THE SAME SENTENCE AS …</text>`
+    svg.innerHTML = s
+  }
+
+  // ---------- step 4: training ----------
+  function rng(seed) { return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296 } }
+  const EPOCHS = 120
+  function start(seed) {
+    const r = rng(seed)
+    return { r, epoch: 0, P: Object.fromEntries(VOCAB.map((w) => [w, [r() * 2 - 1, r() * 2 - 1]])) }
+  }
+  function pass(st) {
+    const { P, r } = st
+    const lr = 0.08 * (1 - st.epoch / (EPOCHS + 20))
+    for (const [a, b] of PAIRS) {
+      const pa = P[a], pb = P[b]
+      const dx = pb[0] - pa[0], dy = pb[1] - pa[1]
+      pa[0] += lr * dx; pa[1] += lr * dy; pb[0] -= lr * dx; pb[1] -= lr * dy        // pull together
+      for (const w of [a, b]) for (let k = 0; k < 2; k++) {                           // push a random word away
+        const o = VOCAB[Math.floor(r() * VOCAB.length)]
+        if (o === w) continue
+        const p = P[w], q = P[o]
+        const ex = p[0] - q[0], ey = p[1] - q[1]
+        const f = Math.min(0.05, (lr * 0.04) / (ex * ex + ey * ey + 0.01))
+        p[0] += f * ex; p[1] += f * ey; q[0] -= f * ex; q[1] -= f * ey
+      }
+    }
+    const mx = VOCAB.reduce((s, w) => s + P[w][0], 0) / VOCAB.length
+    const my = VOCAB.reduce((s, w) => s + P[w][1], 0) / VOCAB.length
+    const sc = Math.max(...VOCAB.map((w) => Math.hypot(P[w][0] - mx, P[w][1] - my)))
+    for (const w of VOCAB) { P[w][0] = (P[w][0] - mx) / sc; P[w][1] = (P[w][1] - my) / sc }   // keep it centered and on the map
+    st.epoch++
+  }
+  const trainFully = (seed) => { const st = start(seed); while (st.epoch < EPOCHS) pass(st); return st.P }
+  const clonePos = (P) => Object.fromEntries(Object.entries(P).map(([w, p]) => [w, [...p]]))
+
+  let seed = 7, live = start(seed), timer = null
+  let TRAINED = trainFully(7) // used by steps 5 and 6 until you finish your own training run
+
+  function quality(P) {
+    const together = PAIRS.reduce((s, [a, b]) => s + dist(P[a], P[b]), 0) / PAIRS.length
+    let apart = 0, n = 0
+    for (let i = 0; i < VOCAB.length; i++) for (let j = i + 1; j < VOCAB.length; j++) { apart += dist(P[VOCAB[i]], P[VOCAB[j]]); n++ }
+    return [together, apart / n]
+  }
+  function renderTrain() {
+    drawMap($('trainmap'), {
+      range: [-1.2, 1.2], axes: ['number 1', 'number 2'],
+      pts: VOCAB.map((w) => ({ name: w, p: live.P[w], color: colorOf(w), bold: !!GROUP[w], r: GROUP[w] ? 6 : 3.5 })),
+    })
+    const [t, a] = quality(live.P)
+    $('tstat').innerHTML = `pass <b>${live.epoch}</b> of ${EPOCHS} · cat ↔ dog <b>${f2(dist(live.P.cat, live.P.dog))}</b> · cat ↔ car <b>${f2(dist(live.P.cat, live.P.car))}</b><br>words seen together: <b>${f2(t)}</b> apart on average · any two words: <b>${f2(a)}</b>`
+    $('play').textContent = timer ? 'Pause' : live.epoch >= EPOCHS ? 'Done' : live.epoch ? 'Keep training' : 'Train'
+    $('play').disabled = !timer && live.epoch >= EPOCHS
+    $('stepbtn').disabled = live.epoch >= EPOCHS
+  }
+  function finishIfDone() {
+    if (live.epoch >= EPOCHS) {
+      stop()
+      TRAINED = clonePos(live.P)
+      renderLookup(); renderSearch()
+    }
+  }
+  function stop() { clearInterval(timer); timer = null }
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
+  $('play').addEventListener('click', () => {
+    if (timer) { stop(); renderTrain(); return }
+    if (reduce) { while (live.epoch < EPOCHS) pass(live); finishIfDone(); renderTrain(); return }
+    timer = setInterval(() => { pass(live); finishIfDone(); renderTrain() }, 40)
+    renderTrain()
+  })
+  $('stepbtn').addEventListener('click', () => { pass(live); finishIfDone(); renderTrain() })
+  $('reset').addEventListener('click', () => { stop(); seed = Math.floor(Math.random() * 1e6); live = start(seed); renderTrain() })
+
+  // ---------- step 5: lookup ----------
+  const sentenceVec = (text) => {
+    const words = toks(text)
+    const known = words.filter((w) => TRAINED[w])
+    const v = known.length ? [0, 1].map((i) => known.reduce((s, w) => s + TRAINED[w][i], 0) / known.length) : null
+    return { words, known, v }
+  }
+  function renderLookup() {
+    const { words, known, v } = sentenceVec($('sent').value)
+    $('toks').innerHTML = words.length
+      ? words.map((w) => `<span class="${TRAINED[w] ? 'known' : 'unknown'}" title="${TRAINED[w] ? 'in the table' : STOP.has(w) ? 'skipped: little word' : 'not in the table'}">${esc(w)}</span>`).join('')
+      : '<span>type something</span>'
+    const first = known[0]
+    $('f-word').textContent = `"${first ?? (words[0] ?? '…')}"`
+    $('f-id').textContent = first ? `word #${VOCAB.indexOf(first) + 1}` : 'not in the list'
+    $('f-row').textContent = first ? `row ${VOCAB.indexOf(first) + 1}` : '—'
+    $('f-vec').textContent = first ? `[${TRAINED[first].map(f2).join(', ')}]` : '—'
+    $('avgcalc').textContent = known.length
+      ? known.map((w) => `${w.padEnd(8)} = [${TRAINED[w].map(f2).join(', ')}]`).join('\n') +
+        (known.length > 1 ? `\n\naverage  = [${v.map(f2).join(', ')}]   ← the star` : `\n\nThat one row is the word's numbers.`)
+      : 'No word from the table yet. Try: cat, banana, bus, sofa…'
+    $('embrows').innerHTML = VOCAB.map((w, i) => `<tr class="${known.includes(w) ? 'hit' : ''}"><td class="n">${i + 1}</td><td>${w}</td><td class="n">${f2(TRAINED[w][0])}</td><td class="n">${f2(TRAINED[w][1])}</td></tr>`).join('')
+    const pts = VOCAB.map((w) => ({ name: known.includes(w) ? w : '', p: TRAINED[w], color: known.includes(w) ? 'var(--accent)' : colorOf(w), bold: known.includes(w), r: known.includes(w) ? 6 : 3.5 }))
+    const lines = known.length > 1 ? known.map((w) => [TRAINED[w], v, 'var(--accent)', true]) : []
+    if (v && known.length > 1) pts.push({ name: 'your sentence', p: v, color: 'var(--link)', bold: true, star: true })
+    drawMap($('sentmap'), { range: [-1.2, 1.2], axes: ['number 1', 'number 2'], pts, lines })
+  }
+  const SENT_EXAMPLES = ['cat', 'the cat drinks milk', 'I drive the bus', 'a sweet banana', 'the dog eats the banana']
+  $('sentchips').innerHTML = SENT_EXAMPLES.map((s) => `<button type="button">${s}</button>`).join('')
+  $('sentchips').addEventListener('click', (e) => { if (e.target.tagName === 'BUTTON') { $('sent').value = e.target.textContent; renderLookup() } })
+  $('sent').addEventListener('input', renderLookup)
+
+  // ---------- step 6: search ----------
+  const NOTES = ['my dog sleeps on the sofa', 'the bus needs fuel', 'I peel a banana every morning', 'the cat drinks milk']
+  const Q_EXAMPLES = ['who chases the mouse', 'what is sweet', 'what is fast', 'which pet sleeps on the sofa']
+  function renderSearch() {
+    const q = sentenceVec($('q').value)
+    const scored = NOTES.map((n) => ({ n, v: sentenceVec(n).v })).map((x) => ({ ...x, d: q.v && x.v ? dist(q.v, x.v) : Infinity })).sort((a, b) => a.d - b.d)
+    const best = q.v ? scored[0].n : null
+    $('notes').innerHTML = scored.map((x) => `<li class="${x.n === best ? 'top' : ''}"><span>${esc(x.n)}</span><span class="v">${Number.isFinite(x.d) ? `distance ${f2(x.d)}` : ''}</span></li>`).join('')
+    $('qinfo').innerHTML = q.v
+      ? `Words used: <b>${q.known.join(', ')}</b>${q.words.length > q.known.length ? ` · skipped: ${q.words.filter((w) => !TRAINED[w]).join(', ')}` : ''}. Closest note: <b>${esc(best)}</b>.`
+      : 'None of these words are in the table yet. Try one of the example questions.'
+    const pts = scored.filter((x) => x.v).map((x, i) => ({ name: x.n.length > 22 ? x.n.slice(0, 21) + '…' : x.n, p: x.v, color: x.n === best ? 'var(--accent)' : 'var(--muted)', bold: x.n === best, r: x.n === best ? 7 : 5 }))
+    if (q.v) pts.push({ name: 'your question', p: q.v, color: 'var(--link)', bold: true, star: true })
+    const lines = q.v ? scored.filter((x) => x.v).map((x) => [q.v, x.v, x.n === best ? 'var(--accent)' : 'var(--rule)', x.n !== best]) : []
+    drawMap($('qmap'), { range: [-1.2, 1.2], axes: ['number 1', 'number 2'], pts, lines })
+  }
+  $('qchips').innerHTML = Q_EXAMPLES.map((s) => `<button type="button">${s}</button>`).join('')
+  $('qchips').addEventListener('click', (e) => { if (e.target.tagName === 'BUTTON') { $('q').value = e.target.textContent; renderSearch() } })
+  $('q').addEventListener('input', renderSearch)
+
+  renderStep2(); renderHeat(); renderTrain(); renderLookup(); renderSearch()
+})()
+</script>
+</body>
+</html>

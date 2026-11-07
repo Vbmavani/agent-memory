@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Every page, explainer, simulator and Claude artifact made while learning agent memory, with what each is for and where it lives.">
+<title>All artifacts · Agent memory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/site.css">
+<link rel="stylesheet" href="assets/page.css">
+<style>:root { --tk-max: 1000px } .tk-pager { margin-bottom: 48px }</style>
+</head>
+<body>
+<script src="assets/site.js"></script>
+<main class="wide">
+  <p class="eyebrow">agent-memory · index</p>
+  <h1>Every artifact from the journey</h1>
+  <p class="lede">When I got stuck, I asked for a page: a map, an explainer, a simulator. These are all of them, in the order I made them, with what each one is for.</p>
+  <p class="muted">Three of these started as private Claude artifacts. The copies on this site are the same pages, with the shared nav bar added, so anyone can open them.</p>
+
+  <div class="tbl">
+    <table>
+      <thead><tr><th>When</th><th>Page</th><th>What it is</th><th>Why I made it</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>4 Nov</td>
+          <td><b>Agent Memory Lab</b></td>
+          <td>The six memory types (CoALA), the five operations every memory system does, 12 hands-on labs in three tracks, a reading list and a six-week plan. Lab checkboxes save in your browser.</td>
+          <td>The first thing I asked for: <i>"all types of memory, how it can be useful in AI agents… I want to try it out by myself and want to change the harness as well."</i></td>
+          <td><a href="reference/memory-lab.html">On this site</a></td>
+        </tr>
+        <tr>
+          <td>5–6 Nov</td>
+          <td><b>Vectors lab</b></td>
+          <td>Words as 3 hand-written numbers (animal, food, big), drawn as arrows in 3-D. It ranks the closest words by cosine similarity, shows the math, and lets you make your own word with sliders.</td>
+          <td><i>"Very, very basic… maybe just three numbers in an array… word to word."</i></td>
+          <td>Inside the app: <code>/vectors.html</code> (<a href="https://github.com/Vbmavani/agent-memory/tree/main/src/vectors">code</a>)</td>
+        </tr>
+        <tr>
+          <td>6 Nov</td>
+          <td><b>Words Into Numbers</b></td>
+          <td>How text becomes vectors, from zero, in seven steps with six diagrams: one number per word, a 2-D map, co-occurrence counts, live training, a sentence as a point, memory search, and a toy-vs-real table.</td>
+          <td><i>"I'm still not able to understand this… from scratch: how it is trained… how it gets three numbers."</i></td>
+          <td><a href="reference/words-into-numbers.html">On this site</a></td>
+        </tr>
+        <tr>
+          <td>6 Nov</td>
+          <td><b>Vector visuals</b></td>
+          <td>2-D and 3-D training simulators. Each one starts from a random layout, moves one pass at a time, and shows what changed between steps. Also a step-by-step guide.</td>
+          <td><i>"I want to have a simulator. I can click one by one, and then it should show me how those paths are working."</i></td>
+          <td><a href="https://vbmavani.github.io/vector-visuals/">3-D</a> · <a href="https://vbmavani.github.io/vector-visuals/2d.html">2-D</a> · <a href="https://vbmavani.github.io/vector-visuals/guide.html">Guide</a></td>
+        </tr>
+        <tr>
+          <td>7 Nov</td>
+          <td><b>How Claude Remembers</b></td>
+          <td>Anthropic's research post on the components of agent memory, in plain English: memory notes, the four-layer memory stack, benchmark results, and "dreaming" between sessions.</td>
+          <td><i>"I don't know what this blog is about and what it is trying to solve, so make it easy to understand for me."</i></td>
+          <td><a href="reference/how-claude-remembers.html">On this site</a></td>
+        </tr>
+        <tr>
+          <td>7 Nov</td>
+          <td><b>This site</b></td>
+          <td>Everything above, connected with one nav bar, plus how I learned it, what I read and searched, my thinking process and every question I asked.</td>
+          <td>So the whole journey is in one place, like the MCP guide in <a href="https://vbmavani.github.io/agent-toolkit/mcp/">agent-toolkit</a>.</td>
+          <td><a href="./">Overview</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>The app's own docs</h2>
+  <p>These live in the repo next to the code, and you can also read them on this site:</p>
+  <ol class="path">
+    <li><a href="learn/?p=app-search"><span class="n">A</span><b>Searching past chats <small>step 1 → 2 → 3</small></b><span>Search by words (SQL), then by meaning (embeddings in pgvector), and mem0 as the planned next step.</span></a></li>
+    <li><a href="learn/?p=app-tools"><span class="n">B</span><b>The tools the model can call <small>reference</small></b><span>Six tools: two that look things up, four that record memory requests. Plus the background decision.</span></a></li>
+    <li><a href="learn/?p=app-message"><span class="n">C</span><b>How one message works <small>walkthrough</small></b><span>The four model calls, the single writer, the locked database write and the source tags.</span></a></li>
+  </ol>
+</main>
+</body>
+</html>
