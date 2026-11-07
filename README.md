@@ -3,6 +3,16 @@
 A small chat app for learning how AI agent memory works, by building each memory type on top of a
 real model (DeepSeek) and a real database (Postgres).
 
+## Explainer pages
+
+- **[Words Into Numbers](https://claude.ai/artifact/Vp2BUAVYBPk16tUhb1WpmC)**: an interactive
+  explainer of how text becomes vectors, from zero. It goes from a number line and a 2-D map to
+  counting which words appear together, live toy training, turning a sentence into a point, and
+  searching memory by meaning, then compares the toy with real embedding models. Read it before
+  step 2 of memory search ([docs/search.md](docs/search.md)).
+- **Vectors lab** (local, in this app): http://localhost:9200/vectors.html, words as 3 hand-written
+  numbers you can rotate and compare (see [Vectors lab](#vectors-lab)).
+
 ## Memory types
 
 | Type | Status | How it works here |
