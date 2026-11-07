@@ -21,6 +21,18 @@ searched, my thinking process, every question I asked, and every explainer I mad
 The site's source is [`docs/`](docs/) (published by `.github/workflows/pages.yml`). The **Vectors lab**
 runs inside the app at http://localhost:9200/vectors.html (see [Vectors lab](#vectors-lab)).
 
+## Users and the Search menu
+
+- **Several users.** In the sidebar, *Switch user* lists everyone and lets you log in by typing a
+  username; a new name creates a new, empty user (no chats, facts, procedures or mem0 memories).
+  It is a local learning app, so there are no passwords. The choice is kept in a cookie.
+- **Search menu** (header): pick which memory search answers each message: *Words + meaning*
+  (steps 1+2, the default), *Words only* (step 1), *Meaning only* (step 2) or *mem0* (step 3).
+  `SEARCH_MODE` is now only the default. Every turn is still sent to mem0 whatever you pick.
+
+To compare searches fairly, use a fresh user and delete its saved facts in *Profile* first:
+otherwise the facts in the system prompt answer the question before any search runs.
+
 ## Memory types
 
 | Type | Status | How it works here |
@@ -77,7 +89,7 @@ checked on paper. It is the first step toward vector (embedding) memory. Math in
 
 ## Searching past chats: learning memory search in steps
 
-This version is **step 2** of learning memory search. Step 1 is kept as it was, in its own file.
+All three steps of learning memory search are built, each in its own file, and you can switch between them.
 
 If you are learning, go in order:
 
@@ -90,9 +102,13 @@ If you are learning, go in order:
    small local model) in a `vector` column on `chats`, and Postgres returns the closest chats. Before
    every reply, related chats are also added to the prompt automatically (🧭 *Recalled related chats*).
    Code: `server/search-step2-meaning.js` and `server/embed.js`.
-3. **Step 3, mem0 (next).** A ready-made memory layer, to compare with the hand-built steps. Not built yet.
+3. **Step 3, mem0.** A ready-made memory layer: after every reply the turn is sent to mem0, which
+   extracts and merges short memories ("User's cat is called Pixel") and searches them. Store a key in
+   the Keychain (`mem0-api-key`), run `npm run mem0:import` once, then `SEARCH_MODE=mem0 npm run dev`.
+   Your chats go to mem0's cloud while a key is set (`MEM0=off` stops it). Code:
+   `server/search-step3-mem0.js`; setup and what the comparison showed are in [docs/search.md](docs/search.md#step-3-mem0-a-ready-made-memory-layer).
 
-Compare both on your own chats with `npm run search:compare -- "your question"`. The full
+Compare all three on your own chats with `npm run search:compare -- "your question"`. The full
 walkthrough is in [docs/search.md](docs/search.md).
 
 ## Tools the model can call
@@ -137,6 +153,7 @@ npm run eval:memory  # live eval: scripted memory scenarios against DeepSeek (ne
   - `users`: the profile, plus learned facts (`facts`) and procedures (`procedures`) as jsonb columns
   - `chats`: one row per chat, with its full history in a `messages` jsonb column and its
     `embedding` (`vector(384)`, pgvector, HNSW index) for search by meaning
+- Step 3 memory layer: [mem0](https://mem0.ai) hosted platform via the `mem0ai` client (optional; telemetry off)
 - Embeddings from `all-MiniLM-L6-v2`, running locally in Node via `@huggingface/transformers`
   (`server/embed.js`); no API key, downloaded once (~23 MB) on first use
 - Row Level Security is on for both tables, so Supabase's public REST API exposes nothing.
@@ -161,6 +178,9 @@ npm run eval:memory  # live eval: scripted memory scenarios against DeepSeek (ne
    ```bash
    npm install
    npm run embed:chats   # once: gives existing chats their embeddings (new chats get one automatically)
-   npm run dev           # SEARCH_MODE=keyword | meaning | hybrid (default); AUTO_RECALL=off to disable recall
+   npm run dev           # SEARCH_MODE=keyword | meaning | hybrid (default) | mem0; AUTO_RECALL=off to disable recall
    ```
+   Optional, for step 3: store a mem0 API key with
+   `security add-generic-password -U -a "$USER" -s mem0-api-key -w` (or set `MEM0_API_KEY`), then run
+   `npm run mem0:import` once.
    Open http://localhost:9200.

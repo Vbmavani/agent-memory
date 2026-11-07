@@ -16,7 +16,12 @@
 import { randomUUID } from 'node:crypto'
 import { deepseek } from './deepseek.js'
 
-export const MEMORY_MODEL = 'deepseek-flash'
+// MEMORY_MODEL overrides it for evals on other models (see server/deepseek.js for the provider).
+export const MEMORY_MODEL = process.env.MEMORY_MODEL || 'deepseek-flash'
+// Reasoning effort for models that think before answering (OpenRouter's `reasoning` field). Off for
+// DeepSeek; 'low' by default on OpenRouter. MEMORY_REASONING=off sends none.
+export const MEMORY_REASONING = process.env.MEMORY_REASONING === 'off' ? null
+  : process.env.MEMORY_REASONING || (process.env.LLM_PROVIDER === 'openrouter' ? 'low' : null)
 export const MAX_FACTS = 100
 export const MAX_PROCEDURES = 30
 const MAX_OPS = 20
@@ -243,6 +248,9 @@ export async function decideMemory({ user, text, previousReply = '', requests = 
       temperature: 0,
       max_tokens: 1200,
       response_format: { type: 'json_object' },
+      // Reasoning models (e.g. GPT-5 nano via OpenRouter) spend output tokens on hidden thinking first;
+      // at their default effort that used the whole 1200-token budget and returned an empty reply.
+      ...(MEMORY_REASONING && { reasoning: { effort: MEMORY_REASONING } }),
       messages: [{ role: 'system', content: MEMORY_PROMPT }, { role: 'user', content: parts.join('\n') }],
     }),
   })
@@ -259,5 +267,6 @@ export async function decideMemory({ user, text, previousReply = '', requests = 
     ops: validateOps(parsed?.facts ?? parsed?.operations, facts, 'fact'),
     procOps: validateOps(parsed?.procedures, procedures, 'procedure'),
     tokens,
+    raw: parsed, // the model's JSON before validation, kept for eval reports
   }
 }

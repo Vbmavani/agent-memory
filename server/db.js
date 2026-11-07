@@ -80,6 +80,8 @@ const SCHEMA_SQL = `
     ALTER TABLE users ADD COLUMN IF NOT EXISTS facts jsonb NOT NULL DEFAULT '[]';
     -- procedural memory: [{id, when, do, createdAt, updatedAt, source, previous}]
     ALTER TABLE users ADD COLUMN IF NOT EXISTS procedures jsonb NOT NULL DEFAULT '[]';
+    -- several users log in by username, so names are unique (ignoring case)
+    CREATE UNIQUE INDEX IF NOT EXISTS users_name_lower_idx ON users (lower(name));
     -- step 2 of past-chat search: one embedding (384 numbers) per chat, searched by meaning
     CREATE EXTENSION IF NOT EXISTS vector;
     ALTER TABLE chats ADD COLUMN IF NOT EXISTS embedding vector(384);
@@ -92,13 +94,37 @@ const SCHEMA_SQL = `
 // ---------- users ----------
 const USER_COLS = 'id, name, email, bio, facts, procedures, created_at AS "createdAt", updated_at AS "updatedAt"'
 
-// Single-user local app: the profile is the oldest user row (created on first run).
-export async function currentUser() {
+// Several users, chosen by username (see /api/login). Without a logged-in id, the default user is
+// the oldest row (created on first run), so scripts and old sessions keep working.
+export async function currentUser(id) {
   await init()
+  if (id) {
+    const { rows: [u] } = await pool.query(`SELECT ${USER_COLS} FROM users WHERE id = $1`, [id])
+    if (u) return u
+  }
   const { rows: [u] } = await pool.query(`SELECT ${USER_COLS} FROM users ORDER BY created_at LIMIT 1`)
   if (u) return u
   const { rows: [created] } = await pool.query(`INSERT INTO users (name) VALUES ('Me') RETURNING ${USER_COLS}`)
   return created
+}
+
+export async function listUsers() {
+  await init()
+  const { rows } = await pool.query(
+    `SELECT u.id, u.name, (SELECT count(*)::int FROM chats c WHERE c.user_id = u.id) AS chats
+     FROM users u ORDER BY u.created_at`)
+  return rows
+}
+
+// Log in by username: the user with that name (any upper/lower case), or a new one.
+// The unique index on lower(name) (migration 0005) makes two logins at once safe.
+export async function findOrCreateUser(name) {
+  await init()
+  const { rows: [u] } = await pool.query(
+    `INSERT INTO users (name) VALUES ($1)
+     ON CONFLICT ((lower(name))) DO UPDATE SET name = users.name
+     RETURNING ${USER_COLS}, (xmax = 0) AS created`, [name])
+  return u
 }
 
 export async function updateUser(id, { name, email, bio }) {

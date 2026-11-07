@@ -1,149 +1,58 @@
-// Live eval of the memory decision against DeepSeek: scripted situations with expected outcomes.
-// Uses no database; it runs decideMemory + mergeFacts in memory.  npm run eval:memory
-// Each case runs RUNS times because model output varies; a case passes only if every run passes.
-import { decideMemory, mergeFacts, mergeProcedures } from '../server/memory.js'
+// Live eval of the memory decision: scripted situations (eval/memory-cases.js) with expected outcomes.
+// Uses no database; it runs decideMemory + mergeFacts/mergeProcedures in memory.
+//   npm run eval:memory                                              # DeepSeek (default)
+//   LLM_PROVIDER=openrouter MEMORY_MODEL=openai/gpt-5-nano npm run eval:memory
+// Each case runs RUNS times (default 2) because model output varies; a case passes only if every
+// run passes. CASES=1,3,5 runs only those cases. A full report (inputs, the model's raw JSON, final
+// memory, verdict, tokens, time) is written to eval/results/<model>-<date>.json.
+import fs from 'node:fs'
+import { decideMemory, mergeFacts, mergeProcedures, MEMORY_MODEL, MEMORY_REASONING } from '../server/memory.js'
+import { provider } from '../server/deepseek.js'
+import { CASES } from './memory-cases.js'
 
 const RUNS = Number(process.env.RUNS ?? 2)
+const only = process.env.CASES ? new Set(process.env.CASES.split(',').map(Number)) : null
 const user = (facts, procedures = []) => ({ name: 'Test User', email: null, bio: '', facts, procedures })
-const has = (facts, re) => facts.filter((f) => re.test(f.text)).length
-const hasProc = (procs, re) => procs.filter((p) => re.test(`${p.when} ${p.do}`)).length
-const STANDUP = [{ id: 'su', when: "the user says 'standup'", do: 'Ask what they did yesterday, what they will do today and any blockers, one question at a time, then write a short Slack-ready summary.' }]
-const LONG_REPLY = '## How JWT works\n\nA JSON Web Token has three parts: a header, a payload and a signature... ' + 'More detail about claims, signing algorithms, expiry and refresh tokens. '.repeat(25)
 
-const CASES = [
-  {
-    name: 'explicit "I am in France" with an existing Lyon fact -> one location fact',
-    facts: [{ id: 'loc', text: 'User lives in Lyon' }],
-    text: 'Remember that I am in France.',
-    requests: [{ action: 'remember', text: 'User is currently in France' }],
-    check: (f) => has(f, /lyon|france/i) === 1 && has(f, /lyon/i) === 1,
-  },
-  {
-    name: 'automatic "I am in France" with an existing Lyon fact -> one location fact',
-    facts: [{ id: 'loc', text: 'User lives in Lyon' }],
-    text: "By the way, I'm in France.",
-    check: (f) => has(f, /lyon|france/i) === 1,
-  },
-  {
-    name: 'moved city -> update, not a second city',
-    facts: [{ id: 'loc', text: 'User lives in Pune' }],
-    text: 'Big news: I just moved to Berlin!',
-    check: (f) => has(f, /berlin/i) === 1 && has(f, /pune/i) === 0,
-  },
-  {
-    name: 'small talk -> nothing saved',
-    facts: [{ id: 'food', text: 'User likes Thai food' }],
-    text: 'Ugh, the weather is so grey today lol',
-    check: (f) => f.length === 1,
-  },
-  {
-    name: 'a question -> nothing saved',
-    facts: [],
-    text: 'What is the capital of France?',
-    check: (f) => f.length === 0,
-  },
-  {
-    name: 'explicit remember, nothing similar stored -> added once',
-    facts: [{ id: 'food', text: 'User likes Thai food' }],
-    text: 'Please remember that my favourite drink is mango lassi.',
-    requests: [{ action: 'remember', text: "User's favourite drink is mango lassi" }],
-    check: (f) => has(f, /drink/i) === 1 && f.length === 2,
-  },
-  {
-    name: 'explicit correction -> replaced, not duplicated',
-    facts: [{ id: 'drink', text: "User's favourite drink is mango lassi" }],
-    text: 'Actually correct that: my favourite drink is masala chai.',
-    requests: [{ action: 'remember', text: "User's favourite drink is masala chai", replaces_id: 'drink', replaces_text: "User's favourite drink is mango lassi" }],
-    check: (f) => has(f, /drink/i) === 1 && has(f, /chai/i) === 1 && has(f, /lassi/i) === 0,
-  },
-  {
-    name: 'forget two things, tool recorded only one -> both forgotten',
-    facts: [
-      { id: 'drink', text: "User's favourite drink is masala chai" },
-      { id: 'hike', text: 'User goes hiking every weekend' },
-      { id: 'food', text: 'User likes Thai food' },
-    ],
-    text: 'Please forget my favourite drink and that I go hiking.',
-    requests: [{ action: 'forget', id: 'drink', text: "User's favourite drink is masala chai" }],
-    check: (f) => f.length === 1 && f[0].id === 'food',
-  },
-  {
-    name: 'already known -> no duplicate',
-    facts: [{ id: 'allergy', text: 'User is allergic to peanuts' }],
-    text: "Just so you know, I'm allergic to peanuts.",
-    check: (f) => has(f, /peanut/i) === 1,
-  },
-  // ---------- procedural memory ----------
-  {
-    name: 'teaching a routine -> one procedure, no facts',
-    facts: [],
-    text: "From now on, when I say 'standup', ask me what I did yesterday, what I'm doing today and any blockers, one at a time, then give me a short Slack message.",
-    check: (f, p) => f.length === 0 && p.length === 1 && /standup/i.test(p[0].when) && /blocker/i.test(p[0].do),
-  },
-  {
-    name: 'correction of how it answered, meant for the future -> procedure, not a fact',
-    facts: [],
-    previousReply: LONG_REPLY,
-    text: 'Too long. For tech explanations, give me 3 bullets and one example.',
-    check: (f, p) => f.length === 0 && p.length === 1 && /3|three/i.test(p[0].do) && /example/i.test(p[0].do),
-  },
-  {
-    name: 'one-off tweak of this answer -> nothing',
-    facts: [],
-    previousReply: LONG_REPLY,
-    text: 'Can you make that one shorter?',
-    check: (f, p) => f.length === 0 && p.length === 0,
-  },
-  {
-    name: 'answers during a running routine -> nothing saved',
-    facts: [],
-    procedures: STANDUP,
-    previousReply: 'Standup time! What did you get done yesterday?',
-    text: 'Fixed the login bug and reviewed two PRs.',
-    check: (f, p) => f.length === 0 && p.length === 1 && p[0].do === STANDUP[0].do,
-  },
-  {
-    name: 'refining a routine -> updated in place, old steps kept',
-    facts: [],
-    procedures: STANDUP,
-    text: 'For standup, also ask how my energy is before the other questions.',
-    check: (f, p) => p.length === 1 && p[0].id === 'su' && /energy/i.test(p[0].do) && /blocker/i.test(p[0].do),
-  },
-  {
-    name: 'stop a routine -> procedure deleted',
-    facts: [],
-    procedures: STANDUP,
-    text: "Let's drop the standup thing, I don't need it anymore.",
-    check: (f, p) => p.length === 0,
-  },
-  {
-    name: 'assistant-recorded lesson -> stored as a procedure',
-    facts: [],
-    text: 'Yes, that was the chat, thanks!',
-    requests: [{ action: 'learn_procedure', when: 'searching past chats', do: 'Search with 2-3 distinctive keywords, not full sentences; if nothing is found, retry with synonyms.' }],
-    check: (f, p) => f.length === 0 && hasProc(p, /keyword/i) === 1,
-  },
-]
-
-let passed = 0
-let tokens = 0
-for (const c of CASES) {
+const report = { model: MEMORY_MODEL, provider: provider().name, reasoning: MEMORY_REASONING, runs: RUNS, startedAt: new Date().toISOString(), cases: [] }
+let passed = 0, ran = 0, tokens = 0
+console.log(`memory eval · ${provider().name} · ${MEMORY_MODEL}${MEMORY_REASONING ? ` (reasoning: ${MEMORY_REASONING})` : ''} · ${RUNS} runs per case\n`)
+for (const [i, c] of CASES.entries()) {
+  if (only && !only.has(i + 1)) continue
+  ran++
   const runs = []
-  for (let i = 0; i < RUNS; i++) {
+  for (let r = 0; r < RUNS; r++) {
+    const t = Date.now()
     const d = await decideMemory({ user: user(c.facts, c.procedures ?? []), text: c.text, previousReply: c.previousReply ?? '', requests: c.requests ?? [] })
+    const ms = Date.now() - t
     tokens += d.tokens
     const { facts } = mergeFacts(c.facts, d.ops)
     const { procedures } = mergeProcedures(c.procedures ?? [], d.procOps)
     runs.push({
       ok: d.ok && c.check(facts, procedures),
-      facts: [...facts.map((f) => f.text), ...procedures.map((p) => `[proc] when ${p.when}: ${p.do}`)],
-      error: d.error,
+      ms, tokens: d.tokens, error: d.error ?? null,
+      modelJson: d.raw ?? null,
+      finalFacts: facts.map((f) => f.text),
+      finalProcedures: procedures.map((p) => ({ when: p.when, do: p.do })),
     })
   }
   const ok = runs.every((r) => r.ok)
   if (ok) passed++
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${c.name}`)
-  if (!ok) runs.filter((r) => !r.ok).forEach((r) => console.log(`        got: ${JSON.stringify(r.facts)}${r.error ? `  error: ${r.error}` : ''}`))
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${String(i + 1).padStart(2)}. ${c.name}`)
+  if (!ok) runs.filter((r) => !r.ok).forEach((r) => console.log(`        got: ${JSON.stringify([...r.finalFacts, ...r.finalProcedures.map((p) => `[proc] when ${p.when}: ${p.do}`)])}${r.error ? `  error: ${r.error}` : ''}`))
+  report.cases.push({
+    n: i + 1, name: c.name, pass: ok,
+    input: { facts: c.facts, procedures: c.procedures ?? [], message: c.text, requests: c.requests ?? [], previousReply: c.previousReply ? c.previousReply.slice(0, 120) + '…' : '' },
+    grader: c.check.toString(),
+    runs,
+  })
 }
-console.log(`\n${passed}/${CASES.length} cases passed (${RUNS} runs each, ${tokens} tokens)`)
-process.exit(passed === CASES.length ? 0 : 1)
+const ms = report.cases.flatMap((c) => c.runs.map((r) => r.ms))
+report.summary = { passed, cases: ran, tokens, avgMs: Math.round(ms.reduce((a, b) => a + b, 0) / (ms.length || 1)) }
+fs.mkdirSync(new URL('./results/', import.meta.url), { recursive: true })
+const tag = process.env.EVAL_TAG ? `-${process.env.EVAL_TAG}` : ''
+const file = new URL(`./results/${MEMORY_MODEL.replace(/\W+/g, '-')}${tag}-${report.startedAt.slice(0, 10)}.json`, import.meta.url)
+fs.writeFileSync(file, JSON.stringify(report, null, 2))
+console.log(`\n${passed}/${ran} cases passed (${RUNS} runs each, ${tokens} tokens, avg ${report.summary.avgMs} ms per call)`)
+console.log(`report: eval/results/${file.pathname.split('/').pop()}`)
+process.exit(passed === ran ? 0 : 1)

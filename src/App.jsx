@@ -19,17 +19,63 @@ async function api(path, init) {
 }
 const json = (method, body) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
+// Which memory search answers this chat: the server's SEARCH_MODE is only the default.
+const SEARCH_OPTIONS = [
+  ['hybrid', 'Words + meaning (steps 1+2)'],
+  ['keyword', 'Words only (step 1)'],
+  ['meaning', 'Meaning only (step 2)'],
+  ['mem0', 'mem0 (step 3)'],
+]
+const SEARCH_KEY = 'deepseek-playground:searchMode'
+const savedMode = () => { try { return localStorage.getItem(SEARCH_KEY) || 'hybrid' } catch { return 'hybrid' } }
+
+// Switch between users by typing a username (a new name creates a new, empty user).
+function UserSwitch({ user, onSwitch }) {
+  const [open, setOpen] = useState(false)
+  const [users, setUsers] = useState([])
+  const [name, setName] = useState('')
+  const [error, setError] = useState('')
+  useEffect(() => { if (open) api('/users').then((d) => setUsers(d.users)).catch((e) => setError(e.message)) }, [open])
+  async function login(n) {
+    setError('')
+    try { onSwitch(await api('/login', json('POST', { name: n }))); setOpen(false); setName('') } catch (e) { setError(e.message) }
+  }
+  if (!open) return <button className="ghost switch-user" onClick={() => setOpen(true)}>Switch user</button>
+  return (
+    <div className="users">
+      <div className="label">Log in as</div>
+      <ul>
+        {users.map((u) => (
+          <li key={u.id}>
+            <button className={`item${u.id === user.id ? ' current' : ''}`} onClick={() => login(u.name)} disabled={u.id === user.id}>
+              <span className="title">{u.name}</span>
+              <span className="sub">{u.id === user.id ? 'logged in · ' : ''}{u.chats} chats</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <form onSubmit={(e) => { e.preventDefault(); if (name.trim()) login(name) }}>
+        <input id="login-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Username (new or existing)" maxLength={40} />
+        <button className="primary" disabled={!name.trim()}>Log in</button>
+      </form>
+      {error && <p className="err">{error}</p>}
+      <button className="ghost" onClick={() => setOpen(false)}>Cancel</button>
+    </div>
+  )
+}
+
 function when(iso) {
   const d = new Date(iso)
   const today = new Date().toDateString() === d.toDateString()
   return today ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { day: 'numeric', month: 'short' })
 }
 
-const MODE_LABEL = { keyword: 'words (step 1)', meaning: 'meaning (step 2)', hybrid: 'words + meaning' }
+const MODE_LABEL = { keyword: 'words (step 1)', meaning: 'meaning (step 2)', hybrid: 'words + meaning', mem0: 'mem0 (step 3)' }
 const MATCH_TITLE = {
   words: 'Step 1: shares words with the search (Postgres full-text search)',
   meaning: 'Step 2: close in meaning (embedding similarity, 0-1)',
   both: 'Found by both the word search and the meaning search',
+  mem0: 'Step 3: a memory mem0 extracted from your chats, with its score',
 }
 
 // One tool call the model made before answering (episodic memory lookup).
@@ -37,7 +83,7 @@ function ToolCall({ call }) {
   const label = call.name === 'search_past_chats'
     ? <>Searched past chats for <b>“{call.args.query}”</b>{call.mode && <span className="tool-mode"> by {MODE_LABEL[call.mode]}</span>}</>
     : call.name === 'auto_recall'
-      ? <>Recalled related chats <span className="tool-mode">automatically, by meaning</span></>
+      ? <>Recalled related {call.mode === 'mem0' ? 'memories' : 'chats'} <span className="tool-mode">automatically, {call.mode === 'mem0' ? 'from mem0' : 'by meaning'}</span></>
     : call.name === 'list_recent_chats'
       ? <>Listed chats from the last <b>{call.args.days ?? 7} days</b></>
       : <>Called <b>{call.name}</b></>
@@ -165,6 +211,7 @@ export default function App() {
   const [input, setInput] = useState('')
   const [error, setError] = useState('')
   const [drawer, setDrawer] = useState(false)
+  const [searchMode, setSearchMode] = useState(savedMode)
   const logRef = useRef(null)
   const inputRef = useRef(null)
 
@@ -212,7 +259,7 @@ export default function App() {
     setPending(text)
     setError('')
     try {
-      const c = await api(`/chats/${chat?.id ?? 'new'}/messages`, json('POST', { model, content: text }))
+      const c = await api(`/chats/${chat?.id ?? 'new'}/messages`, json('POST', { model, content: text, searchMode }))
       setChat(c)
       store.set(c.id)
       refreshList()
@@ -223,6 +270,19 @@ export default function App() {
     } finally {
       setPending(null)
     }
+  }
+
+  function switchUser(u) {
+    setUser(u)
+    setChat(null)
+    store.set(null)
+    setError('')
+    refreshList()
+  }
+
+  function pickMode(m) {
+    setSearchMode(m)
+    try { localStorage.setItem(SEARCH_KEY, m) } catch {}
   }
 
   const messages = chat?.messages ?? []
@@ -250,6 +310,7 @@ export default function App() {
             <span className="me-text"><span className="title">{user.name}</span><span className="sub">Profile</span></span>
           </button>
         )}
+        {user && <UserSwitch user={user} onSwitch={switchUser} />}
       </aside>
       {drawer && <div className="scrim" onClick={() => setDrawer(false)} />}
 
@@ -259,6 +320,12 @@ export default function App() {
           <h1>DeepSeek <span>Playground</span></h1>
           <a className="ghost lab-link" href="/vectors.html">Vectors lab</a>
           <a className="ghost lab-link" href="https://vbmavani.github.io/agent-memory/" target="_blank" rel="noopener">Learning site ↗</a>
+          <label>
+            Search
+            <select id="search-mode" value={searchMode} onChange={(e) => pickMode(e.target.value)}>
+              {SEARCH_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
           <label>
             Model
             <select value={model} onChange={(e) => setModel(e.target.value)} disabled={!models.length}>

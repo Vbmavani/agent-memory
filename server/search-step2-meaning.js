@@ -2,7 +2,7 @@
 // Each chat is stored as one point of 384 numbers in chats.embedding (server/embed.js makes the
 // numbers). A question becomes a point too, and Postgres returns the closest chats; then the best
 // message inside each chat is picked. Compare with step 1 (server/search-step1-words.js) using
-// `npm run search:compare -- "your question"`. Step 3 (planned): mem0. See docs/search.md.
+// `npm run search:compare -- "your question"`. Step 3 is mem0 (search-step3-mem0.js). See docs/search.md.
 import { pool } from './db.js'
 import { cosine, embed, embedMany, embedChat, toSql } from './embed.js'
 

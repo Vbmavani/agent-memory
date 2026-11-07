@@ -22,6 +22,7 @@ All times are UTC.
 | **6 Nov, 23:27 – 7 Nov, 00:58** | Back to the app: **search memory by meaning**. Embeddings in a pgvector column, hybrid search, and related chats recalled into the prompt automatically. Kept the SQL word search as step 1, labelled this step 2, and planned mem0 as step 3. | [Ch 4](04-search-steps.md) |
 | **7 Nov, 01:22** | Read Anthropic's post [The components of agent memory](https://www.anthropic.com/research/components-of-agent-memory) as a plain-English page: [How Claude Remembers](../reference/how-claude-remembers.html). | [Ch 5](05-reading-and-research.md) |
 | **7 Nov, 02:05** | Put the whole journey into this site. | — |
+| **7 Nov, ~12:10** | Asked what to learn next, then set up **mem0** as step 3: every turn sent to mem0, all chats imported, `SEARCH_MODE=mem0`, and compared with step 2 on the same questions. | [Ch 4](04-search-steps.md#step-3-mem0) |
 
 ## The method that worked
 

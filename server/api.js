@@ -9,7 +9,7 @@
 //   4. TOOLS: search the user's OTHER chats (episodic memory), and record explicit
 //      remember / forget requests for facts (semantic memory) and procedures (procedural memory),
 //      applied by server/memory.js after the reply
-//   5. RELEVANT PAST CONVERSATIONS: found automatically by meaning (embeddings, server/search.js)
+//   5. RELEVANT PAST CONVERSATIONS: found automatically by meaning (embeddings or mem0, server/search.js)
 import { randomUUID } from 'node:crypto'
 import * as db from './db.js'
 import { deepseek } from './deepseek.js'
@@ -84,10 +84,14 @@ Say which earlier chat the information came from. If nothing is found, say so; n
 // ---------- tools ----------
 // The search tool's description depends on SEARCH_MODE (server/search.js): step 1 matches words,
 // step 2 matches meaning, so the model should write its queries differently.
-function searchToolDescription() {
+function searchToolDescription(mode) {
   const base = "Search the user's earlier chats with you (not the current chat). " +
     'Returns matching messages with the chat title, date, and the messages around them. '
-  const mode = search.searchMode()
+  if (mode === 'mem0') {
+    return "Search the memories you have about the user from earlier chats. Each result is a short memory " +
+      '(e.g. "User\'s cat is named Pixel") with the chat it came from and a score; higher is a better match. ' +
+      'Describe what you are looking for in plain words, e.g. "what is my pet called" or "the trip I was planning".'
+  }
   if (mode === 'keyword') {
     return base + 'This is a keyword search: use short keyword queries, e.g. "cat name", "Kyoto trip", "allergy". Try another wording if nothing is found.'
   }
@@ -96,12 +100,12 @@ function searchToolDescription() {
     'Each result has a similarity (0-1) and matchedBy (meaning / words / both). Low similarity means a weak match.'
 }
 
-const TOOLS = [
+const toolsFor = (mode) => [
   {
     type: 'function',
     function: {
       name: 'search_past_chats',
-      description: searchToolDescription(),
+      description: searchToolDescription(mode),
       parameters: {
         type: 'object',
         properties: {
@@ -226,8 +230,8 @@ async function runTool(name, args, ctx) {
   if (name === 'search_past_chats') {
     const query = String(args.query ?? '').trim()
     if (!query) return { error: 'query is required' }
-    const results = await search.searchPastChats(ctx.userId, ctx.chatId, query, clamp(args.limit, 1, 10, 6))
-    const out = { query, mode: search.searchMode(), count: results.length, results }
+    const results = await search.searchPastChats(ctx.userId, ctx.chatId, query, clamp(args.limit, 1, 10, 6), ctx.searchMode)
+    const out = { query, mode: ctx.searchMode, count: results.length, results }
     // Procedural learning from experience: a retry worked after a search that found nothing.
     if (!results.length) ctx.failedQueries.push(query)
     else if (ctx.failedQueries.length && !ctx.procedures.some((p) => /search/i.test(p.when))) {
@@ -255,7 +259,7 @@ async function answerWithTools({ model, messages, ctx }) {
     const allowTools = rounds < MAX_TOOL_ROUNDS
     const { status, data } = await deepseek('/chat/completions', {
       method: 'POST',
-      body: JSON.stringify({ model, messages: convo, max_tokens: 1000, ...(allowTools && { tools: TOOLS }) }),
+      body: JSON.stringify({ model, messages: convo, max_tokens: 1000, ...(allowTools && { tools: toolsFor(ctx.searchMode) }) }),
     })
     if (status !== 200) return { status, data }
     rounds++
@@ -353,11 +357,35 @@ function send(res, status, data) {
   res.end(JSON.stringify(data))
 }
 
+// ---------- who is logged in ----------
+const USER_COOKIE = 'am_user'
+function userIdFromCookie(req) {
+  const m = (req.headers.cookie ?? '').match(new RegExp(`(?:^|;\\s*)${USER_COOKIE}=([^;]+)`))
+  return m && UUID.test(m[1]) ? m[1] : null
+}
+
 // ---------- routes ----------
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x')
   const parts = url.pathname.split('/').filter(Boolean) // e.g. ['chats', '<id>', 'messages']
-  const user = await db.currentUser()
+
+  // POST /api/login {name}  -> log in as that username (created if new); remembered in a cookie.
+  // A local learning app: there are no passwords, anyone who can open the app can switch users.
+  if (req.method === 'POST' && parts[0] === 'login') {
+    const name = String((await readJson(req)).name ?? '').trim().replace(/\s+/g, ' ')
+    if (!name) return send(res, 400, { error: 'Type a username' })
+    if (name.length > 40) return send(res, 400, { error: 'Usernames are 40 characters at most' })
+    const u = await db.findOrCreateUser(name)
+    res.setHeader('Set-Cookie', `${USER_COOKIE}=${u.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`)
+    return send(res, 200, u)
+  }
+
+  const user = await db.currentUser(userIdFromCookie(req))
+
+  // GET /api/users  -> everyone you can switch to, and who is logged in now
+  if (req.method === 'GET' && parts[0] === 'users') {
+    return send(res, 200, { users: await db.listUsers(), current: user.id })
+  }
 
   // GET /api/models
   if (req.method === 'GET' && parts[0] === 'models') {
@@ -386,7 +414,7 @@ async function handle(req, res) {
       try {
         return send(res, 200, await db.updateUser(user.id, clean))
       } catch (e) {
-        if (e.code === '23505') return send(res, 409, { error: 'That email is already used by another user' })
+        if (e.code === '23505') return send(res, 409, { error: 'That name or email is already used by another user' })
         throw e
       }
     }
@@ -411,7 +439,9 @@ async function handle(req, res) {
 
   // POST /api/chats/:id/messages  (id "new" starts a chat)  body: { model, content }
   if (req.method === 'POST' && parts[0] === 'chats' && parts[2] === 'messages') {
-    const { model, content } = await readJson(req)
+    const body = await readJson(req)
+    const { model, content } = body
+    const searchMode = search.searchMode(body.searchMode) // the chat UI's Search menu, else SEARCH_MODE
     const text = String(content || '').trim()
     if (!text) return send(res, 400, { error: 'Empty message' })
     if (text.length > MAX_MESSAGE_CHARS) return send(res, 400, { error: `Message too long (max ${MAX_MESSAGE_CHARS} characters)` })
@@ -421,7 +451,7 @@ async function handle(req, res) {
     const chat = existing ?? { id: randomUUID(), title: text.slice(0, 50), messages: [] }
 
     // Past chats close in meaning to this message, added to the prompt without the model asking.
-    const recalled = await search.recallForPrompt(user.id, chat.id, text)
+    const recalled = await search.recallForPrompt(user.id, chat.id, text, 3, searchMode)
 
     // Profile + facts (system message) + previous history of THIS chat (from Postgres) + the new message.
     const prompt = [
@@ -432,7 +462,7 @@ async function handle(req, res) {
 
     const t = Date.now()
     const previousReply = chat.messages.findLast((m) => m.role === 'assistant')?.content
-    const ctx = { userId: user.id, chatId: chat.id, facts: user.facts ?? [], procedures: user.procedures ?? [], memoryRequests: [], failedQueries: [] }
+    const ctx = { searchMode, userId: user.id, chatId: chat.id, facts: user.facts ?? [], procedures: user.procedures ?? [], memoryRequests: [], failedQueries: [] }
     // The reply and a speculative memory decision run at the same time, so learning adds no wait.
     const [out, speculative] = await Promise.all([
       answerWithTools({ model, messages: prompt, ctx }),
@@ -463,11 +493,11 @@ async function handle(req, res) {
             contextMessages: prompt.length - 1, // previous history + new message, excluding system
             profile: user.name,
             modelCalls: out.rounds,
-            searchMode: search.searchMode(),
+            searchMode,
             toolCalls: [
               ...(recalled.length ? [{
-                name: 'auto_recall', args: {}, count: recalled.length,
-                found: recalled.map((r) => ({ chat: r.chat, date: r.date, snippet: r.message.slice(0, 140), matchedBy: 'meaning', similarity: r.similarity })),
+                name: 'auto_recall', args: {}, count: recalled.length, mode: searchMode,
+                found: recalled.map((r) => ({ chat: r.chat, date: r.date, snippet: r.message.slice(0, 140), matchedBy: r.matchedBy, similarity: r.similarity })),
               }] : []),
               ...out.toolCalls,
             ],
@@ -483,6 +513,11 @@ async function handle(req, res) {
     })
     // Keep this chat's embedding current for future searches (in the background, after replying).
     search.refreshChatEmbedding(user.id, saved).catch((e) => console.warn('[embed] chat not embedded:', e.message))
+    // Step 3: let mem0 learn from this turn too (it extracts memories on its side, a few seconds later).
+    if (search.mem0Enabled()) {
+      search.rememberInMem0(user.id, chat.id, [{ role: 'user', content: text, at: now }, { role: 'assistant', content: out.reply }])
+        .catch((e) => console.warn('[mem0] turn not sent:', e.message))
+    }
     return send(res, 200, saved)
   }
 

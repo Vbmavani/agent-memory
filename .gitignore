@@ -20,3 +20,4 @@ data/
 .idea/
 .cursor/
 !supabase/migrations/*.sql
+eval/results/

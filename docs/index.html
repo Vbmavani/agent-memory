@@ -101,7 +101,7 @@
         <text class="sub" x="772" y="160">Anthropic's post on memory</text>
         <text class="sub" x="772" y="174">notes and dreaming</text>
         <text class="sub" x="772" y="196">this site, then step 3:</text>
-        <text class="sub" x="772" y="210">try mem0</text>
+        <text class="sub" x="772" y="210">mem0 as a memory layer</text>
 
         <text class="leg" x="40" y="326">ALL DATES 2026 · THE HIGHLIGHTED DAY IS WHERE MOST OF THE CODE WAS WRITTEN</text>
       </svg>
@@ -139,7 +139,7 @@
         <tr><td><b>Episodic</b></td><td>Past conversations</td><td><code>search_past_chats</code>: by words (step 1), by meaning (step 2)</td><td>done</td></tr>
         <tr><td><b>Semantic</b></td><td>Lasting facts about the user</td><td><code>users.facts</code>, written by one memory decision per message</td><td>done</td></tr>
         <tr><td><b>Procedural</b></td><td>How the user wants the agent to work</td><td><code>users.procedures</code>: routines, rules, self-learned lessons</td><td>done</td></tr>
-        <tr><td><b>Vector</b></td><td>Search by meaning</td><td><code>chats.embedding</code>, 384 numbers per chat, pgvector</td><td>step 2 done · mem0 next</td></tr>
+        <tr><td><b>Vector</b></td><td>Search by meaning, then mem0</td><td><code>chats.embedding</code>, 384 numbers per chat, pgvector</td><td>steps 2 and 3 (mem0) done</td></tr>
       </tbody>
     </table>
   </div>

@@ -9,10 +9,13 @@
     "test": "node --test \"test/*.test.js\"",
     "eval:memory": "node eval/memory-eval.js",
     "embed:chats": "node scripts/embed-chats.js",
-    "search:compare": "node scripts/compare-search.js"
+    "search:compare": "node scripts/compare-search.js",
+    "mem0:import": "node scripts/mem0-import.js",
+    "mem0:list": "node scripts/mem0-import.js --list"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.2",
+    "mem0ai": "^3.3.1",
     "pg": "^8.23.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

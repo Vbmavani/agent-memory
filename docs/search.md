@@ -1,18 +1,18 @@
 # Searching past chats: learning memory search in steps
 
 The agent can look things up in your earlier chats (episodic memory). This app is a learning path
-for memory search, one step at a time. **This version is step 2.**
+for memory search, one step at a time. **Steps 1, 2 and 3 are all built**, and you can switch between them.
 
 | Step | What | Status | Code |
 |---|---|---|---|
 | 1 | Search by **words**: plain SQL full-text search | done (the original search, kept as it was) | [`server/search-step1-words.js`](../server/search-step1-words.js) |
-| 2 | Search by **meaning**: embeddings stored in Postgres (pgvector) | done (this version) | [`server/search-step2-meaning.js`](../server/search-step2-meaning.js), [`server/embed.js`](../server/embed.js) |
-| 3 | A memory layer: **mem0** | next, not built yet | — |
+| 2 | Search by **meaning**: embeddings stored in Postgres (pgvector) | done | [`server/search-step2-meaning.js`](../server/search-step2-meaning.js), [`server/embed.js`](../server/embed.js) |
+| 3 | A memory layer: **mem0** extracts, merges and searches short memories | done | [`server/search-step3-mem0.js`](../server/search-step3-mem0.js) |
 
 **If you are learning, go in order.** Start with step 1, the plain SQL search: it has no model and
 no magic, so you can read every line. Once you have seen where it fails, try step 2, embedding
-search, and compare the two on the same questions. [`server/search.js`](../server/search.js) only
-picks the mode and merges the two.
+search, and compare the two on the same questions. Then try mem0 and see what a ready-made memory
+layer does differently. [`server/search.js`](../server/search.js) only picks the mode and merges.
 
 | | Step 1: by words | Step 2: by meaning |
 |---|---|---|
@@ -126,9 +126,71 @@ about 0.35 to 0.7, and noise scores 0 to 0.3.
   best-message step helps, but storing a vector per message or per fact would need a third table.
 - **Existing chats** need embeddings once: `npm run embed:chats` fills in any chat without one.
 
-## Step 3 (next): mem0
+## Step 3: mem0, a ready-made memory layer
 
-Steps 1 and 2 search whole chats and messages. The next step is a dedicated memory layer: mem0
-pulls short memories out of conversations, stores them with their own embeddings, and handles
-adding, updating and searching them. Trying it will show what a ready-made memory system does
-compared with the hand-built steps here. Not built yet.
+Steps 1 and 2 search *our* data: whole chats and their messages, stored and indexed by this app.
+mem0 works differently. After every reply the app sends the new user message and reply to mem0
+(its hosted platform), and **mem0 decides what to remember**. It pulls out short memories ("User's
+cat is called Pixel"), merges them with what it already has (add / update / delete, the same job our
+[single writer](how-a-message-works.md) does for `users.facts`), embeds them and stores them on its side.
+Searching returns those short memories, not chat messages.
+
+Code: [`server/search-step3-mem0.js`](../server/search-step3-mem0.js).
+
+### Set it up
+
+1. Get an API key from [app.mem0.ai](https://app.mem0.ai) and store it in the Keychain (never in a file):
+   ```bash
+   security add-generic-password -U -a "$USER" -s mem0-api-key -w
+   ```
+   Or set `MEM0_API_KEY`.
+2. Give mem0 your existing chats once (new turns are sent automatically after every reply):
+   ```bash
+   npm run mem0:import
+   npm run mem0:list     # a minute later: what mem0 remembers
+   ```
+3. Start the app with step 3 as the search:
+   ```bash
+   SEARCH_MODE=mem0 npm run dev
+   ```
+
+Whatever `SEARCH_MODE` is, every turn is also sent to mem0 while a key is set, so mem0 keeps
+learning and `npm run search:compare` can show all three steps side by side. `MEM0=off` stops
+sending. **With mem0 on, your chats go to mem0's cloud service**, including anything personal in them.
+
+### Details that matter
+
+- **Writing is asynchronous.** `add` returns `PENDING` right away. mem0 extracts the memories a few
+  seconds later, so a fact said now may not be searchable for the next few seconds.
+- **Send when it happened.** Each turn is sent with its time (`timestamp`). Without it, mem0 dates
+  every memory "now", and imported old chats read as if they were said today.
+- **Each memory keeps the chat it came from** (`metadata.chatId`), so results can name the chat.
+- **Scores run lower than cosine similarity.** The correct memory for "what is my pet called" scored
+  0.42 and noise 0.14–0.19, so the cut-offs are 0.15 for search and 0.25 for auto-recall.
+- **Resets are asynchronous too.** `npm run mem0:import -- --reset` deletes everything for the user;
+  import again a minute later, or the delete can wipe the new memories as well.
+- The mem0 client's usage telemetry is turned off (`MEM0_TELEMETRY=false`), and mem0 only sees the
+  app's random user id, never the profile's name or email fields (though chats may mention them).
+
+### What comparing it with steps 1 and 2 showed
+
+On the same 25 chats (`npm run search:compare -- "…"`):
+
+| Question | Step 2 (meaning) | Step 3 (mem0) |
+|---|---|---|
+| "what is my pet called" | The raw messages, top 0.71 | One clean memory: "User's cat is called Pixel" (0.42) |
+| "team sync" | The question chat only (0.68) | Memories *about earlier searches* ("User asked what they reported…"), not the standup report |
+| "how should you explain tech to me" | My actual correction, "3 bullets and one example" (0.56) | The same rule, worded from the assistant's side (0.22), with noise close behind |
+| A new fact: "his name is Byte" | Embedded with the chat | Merged into one updated memory: "now having two cats: Pixel and Byte" |
+
+What it teaches:
+
+- **mem0 gives short, clean facts** and keeps them up to date by merging, which is much less to put in
+  a prompt than whole messages.
+- **It remembers whatever was said, including by the assistant.** Out of the box it saved long
+  assistant explanations, an old wrong claim ("does not have access to previous chats") and the app's
+  own search chatter. Our single writer only saves lasting facts *about the user*, with rules.
+- **It doesn't enforce one memory per topic.** It kept two different versions of the standup routine
+  (3 questions and 4), where `users.procedures` keeps one per trigger.
+- Those are things to tune next with mem0's custom instructions (what to remember and what to skip),
+  and to measure with a recall test rather than by eye.

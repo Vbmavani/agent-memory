@@ -14,7 +14,7 @@ Read it in order if you're new. Each chapter says *why* a topic came up, not jus
 | 1 | [The map: memory types and operations](01-the-map.md) | Name the six memory types and the five operations every memory system does |
 | 2 | [Building it, one memory type at a time](02-building-memory.md) | Add short-term, episodic, semantic and procedural memory to a real app, and know why "one writer" matters |
 | 3 | [Vectors from scratch](03-vectors.md) | Explain what the 384 numbers are, where they come from, and why the same text always gets the same ones |
-| 4 | [Memory search in steps](04-search-steps.md) | Search memory by words, then by meaning, and know what step 3 (mem0) adds |
+| 4 | [Memory search in steps](04-search-steps.md) | Search memory by words, then by meaning, then with mem0, and know what each one is good and bad at |
 | 5 | [What I read and searched](05-reading-and-research.md) | Find the papers, posts, frameworks and searches behind each step |
 | 6 | [My thinking process](06-thinking-process.md) | Reuse the habits that made this stick |
 | 7 | [Every question I asked](07-question-log.md) | Skim the raw questions, with the gist of each answer |
