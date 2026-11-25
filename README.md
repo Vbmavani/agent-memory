@@ -30,6 +30,13 @@ and the chat model can call `explore_graph` to **walk** the graph. The walk is a
 query (`WITH RECURSIVE`), no extension. Tick **Compare vector vs graph** in the chat header to see both answers side by side. Try it in the **Graph lab** (http://localhost:9200/graph.html)
 and read [docs/graph.md](docs/graph.md). `GRAPH_MEMORY=off` turns it off.
 
+## Guardrails lab
+
+A small support agent with tools and four guardrail layers (input, tool calls, output, budget). Send it
+something harmless, then something nasty, and watch every layer decide live; switch layers off or press
+**Compare ON vs OFF** to see what each one protects. Works with a free mock model or live DeepSeek, and
+needs no database. Open http://localhost:9200/guardrails.html and read [docs/guardrails.md](docs/guardrails.md).
+
 ## Users and the Search menu
 
 - **Several users.** In the sidebar, *Switch user* lists everyone and lets you log in by typing a
