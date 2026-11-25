@@ -24,3 +24,34 @@ export function checkOutput(text, { systemPrompt } = {}) {
   }
   return { ok: true, text };
 }
+
+// ---- FORMAT: the reply must be a plain message, not markup or a raw data dump ----
+const MAX_REPLY_CHARS = 1500
+export function checkFormat(text) {
+  if (text.length > MAX_REPLY_CHARS) return { ok: false, reason: `reply too long (>${MAX_REPLY_CHARS} chars)` }
+  if (/<\s*(script|iframe|object|embed)\b|\bon[a-z]+\s*=\s*["']|javascript:/i.test(text))
+    return { ok: false, reason: 'reply contains active markup (script / event handler)' }
+  if (/^\s*[[{]/.test(text)) return { ok: false, reason: 'reply is raw JSON, not a message' }
+  return { ok: true }
+}
+
+// ---- GROUNDING: every specific number / amount / code in the reply must appear in what the agent was
+// actually given (the user's message, the tool results, the system prompt). A code-based check that
+// catches invented tracking numbers and prices. Real systems add an NLI model or an LLM judge for claims in prose.
+const MONEY = /\$\s?\d[\d,]*(?:\.\d+)?/g
+const NUMBER = /\b\d{3,}(?:\.\d+)?\b/g
+const CODE = /\b(?=[A-Z0-9-]*\d)(?=[A-Z0-9-]*[A-Z])[A-Z0-9-]{8,}\b/g
+const norm = (s) => s.replace(/,/g, '').toLowerCase()
+
+export function checkGrounding(text, corpus) {
+  const hay = norm(String(corpus))
+  const tokens = new Set([
+    ...(text.match(MONEY) ?? []),
+    ...(text.match(NUMBER) ?? []).filter((n) => !/^(19|20)\d\d$/.test(n)), // years are not claims
+    ...(text.match(CODE) ?? []),
+  ])
+  const ungrounded = [...tokens].filter((t) => !hay.includes(norm(t).replace(/^\$\s?/, '')))
+  return ungrounded.length
+    ? { ok: false, reason: `reply states details that are not in the data: ${ungrounded.slice(0, 3).join(', ')}`, ungrounded }
+    : { ok: true }
+}

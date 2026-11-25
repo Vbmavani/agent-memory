@@ -34,7 +34,7 @@ h1 { margin: 6px 0 6px; font-size: 26px; letter-spacing: -.01em; }
 .seg button { border: 0; background: transparent; padding: 6px 12px; }
 .seg button.on { background: var(--accent); color: #fff; }
 .switches { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-@media (max-width: 900px) { .switches { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) {  }
 .sw { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; cursor: pointer; }
 .sw.on { border-color: var(--ok); background: var(--okbg); }
 .sw.off { border-color: var(--warn); background: var(--warnbg); }
@@ -84,3 +84,43 @@ h1 { margin: 6px 0 6px; font-size: 26px; letter-spacing: -.01em; }
 .verdict { margin-top: 8px; padding: 8px 10px; border-radius: 9px; font-weight: 600; font-size: 13px; }
 .verdict.ok { background: var(--okbg); color: var(--ok); } .verdict.bad { background: var(--badbg); color: var(--bad); }
 .vans { font-weight: 400; color: var(--ink); margin-top: 2px; word-break: break-word; }
+
+/* groups of switches */
+.groups { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
+@media (max-width: 1000px) { .groups { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .groups { grid-template-columns: minmax(0, 1fr); } }
+.group { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.gname { font-weight: 700; font-size: 14px; }
+.gname span { font-weight: 400; font-size: 12px; color: var(--muted); margin-left: 4px; }
+.kind { font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 99px; margin-left: 6px; background: var(--code); color: var(--muted); }
+.kind.trained-model { background: #e8e4fb; color: #5b3fc4; }
+.kind.cheap-LLM { background: #fde8d6; color: #a4510c; }
+.kind.policy { background: #dcf1f1; color: #0e6b6b; }
+@media (prefers-color-scheme: dark) {
+  .kind.trained-model { background: #2d2750; color: #b6a6ff; }
+  .kind.cheap-LLM { background: #4a3322; color: #f5b27a; }
+  .kind.policy { background: #1b3a3a; color: #7fd6d6; }
+}
+.inl { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.inl select { border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; background: var(--panel); color: var(--ink); font: inherit; }
+.row button:not(.seg button) { border: 1px solid var(--line); border-radius: 9px; padding: 6px 12px; background: transparent; }
+button.kill { border-color: var(--bad); color: var(--bad); }
+button.kill.on { background: var(--bad); color: #fff; }
+.banner { background: var(--bad); color: #fff; border-radius: 9px; padding: 8px 12px; font-weight: 700; margin-bottom: 10px; }
+.mstat { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 99px; background: var(--code); margin-left: 6px; }
+.mstat.ready { background: var(--okbg); color: var(--ok); }
+.mstat.loading { background: var(--warnbg); color: var(--warn); }
+.mstat.error { background: var(--badbg); color: var(--bad); }
+.plabel em { font-style: normal; font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+
+/* alerts and audit */
+.alert { border-radius: 9px; padding: 7px 10px; margin-top: 6px; font-size: 13px; background: var(--warnbg); color: var(--warn); }
+.alert.critical { background: var(--badbg); color: var(--bad); }
+.alert.info { background: var(--code); color: var(--muted); }
+.alerts { margin-bottom: 10px; }
+.tablewrap { overflow-x: auto; }
+table.audit { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.audit th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+table.audit td { padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.blocked { color: var(--bad); } td.answered { color: var(--ok); }
+button.small { font-size: 12px; margin-left: 8px; border: 1px solid var(--line); border-radius: 7px; padding: 2px 8px; background: transparent; }

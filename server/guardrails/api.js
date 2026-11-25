@@ -1,19 +1,25 @@
 // API for the Guardrails lab (a separate Vite plugin, so it needs no database and does not touch server/api.js).
 //
-//   GET  /api/guardrails/status            -> { live }  is a DeepSeek key available? (otherwise only the mock model works)
+//   GET  /api/guardrails/status            -> { live, models, killed, roles }  (also starts loading the local models)
 //   POST /api/guardrails/chat              -> Server-Sent Events: `log` (one per guardrail decision), `approval`
-//                                             (a human must say yes/no), then `final` with the answer
+//                                             (a human must say yes/no), `alert`, then `final` with the answer
 //   POST /api/guardrails/approve {id, ok}  -> the human's answer to an `approval` event
+//   POST /api/guardrails/kill {on}         -> the kill switch: while ON, every request is refused
+//   GET  /api/guardrails/audit             -> recent requests and alerts (the audit trail)
+//   POST /api/guardrails/reset {sessionId} -> forget this session's cumulative usage and rate-limit / breaker state
 //
 // The browser never sees the key. Every request is a single turn with no saved history.
 import { randomUUID } from 'node:crypto'
-import { runAgent } from './agent.js'
-import { mockChat } from './mock.js'
+import { runAgent, GUARD_KEYS } from './agent.js'
+import { mockChat, mockAsk } from './mock.js'
 import { deepseek } from '../deepseek.js'
+import { classifierStatus, warmup } from './classifiers.js'
+import { ROLES, usage } from './policy.js'
+import { kill, rateLimiter, breaker } from './runtime.js'
+import { audit } from './audit.js'
 
 const MAX_MESSAGE_CHARS = 8000
 const APPROVAL_TIMEOUT_MS = 60_000
-const GUARDS = ['input', 'tool', 'output', 'budget']
 
 const pending = new Map() // approval id -> resolve(boolean)
 
@@ -53,7 +59,9 @@ async function chat(req, res) {
   if (!mock && !(await liveAvailable())) {
     return sendJson(res, 400, { error: 'No DeepSeek key found (env DEEPSEEK_API_KEY or Keychain "deepseek-api-key"). Use the mock model.' })
   }
-  const guards = Object.fromEntries(GUARDS.map((g) => [g, body.guards?.[g] !== false]))
+  const guards = Object.fromEntries(GUARD_KEYS.map((g) => [g, body.guards?.[g] !== false]))
+  const role = ROLES[body.role] ? body.role : 'support'
+  const sessionId = String(body.sessionId ?? 'anon').slice(0, 64)
 
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' })
   const emit = (event, data) => { if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`) }
@@ -71,20 +79,52 @@ async function chat(req, res) {
     })
 
   const started = Date.now()
+  const trace = []
+  const wasOpen = breaker.openedAt > 0
   const result = await runAgent(message, {
     chat: mock ? mockChat : undefined,
+    ask: mock ? mockAsk : undefined,
     approve,
     guards,
-    log: (e) => emit('log', { ...e, ms: Date.now() - started }),
+    role,
+    sessionId,
+    log: (e) => { const ev = { ...e, ms: Date.now() - started }; trace.push(ev); emit('log', ev) },
   })
-  emit('final', { ...result, ms: Date.now() - started })
+  const final = { ...result, ms: Date.now() - started }
+  emit('final', final)
+
+  // Observability: audit trail + alert rules. Alerts reach the page as `alert` events.
+  const alerts = await audit.record({ session: sessionId, message, guards, trace, final, role })
+  if (!wasOpen && breaker.openedAt > 0) alerts.push(audit.systemAlert('circuit-open', 'warning', 'circuit breaker opened: the model keeps failing'))
+  for (const a of alerts) emit('alert', a)
   res.end()
 }
 
 async function handle(req, res) {
   const path = new URL(req.url, 'http://x').pathname
-  if (req.method === 'GET' && path === '/status') return sendJson(res, 200, { live: await liveAvailable() })
+  if (req.method === 'GET' && path === '/status') {
+    warmup() // first visit starts downloading / loading the local models in the background
+    return sendJson(res, 200, {
+      live: await liveAvailable(),
+      models: classifierStatus(),
+      killed: kill.on,
+      roles: Object.fromEntries(Object.entries(ROLES).map(([k, v]) => [k, v.label])),
+    })
+  }
+  if (req.method === 'GET' && path === '/audit') return sendJson(res, 200, { entries: audit.recent(30), alerts: audit.recentAlerts(20) })
   if (req.method === 'POST' && path === '/chat') return chat(req, res)
+  if (req.method === 'POST' && path === '/kill') {
+    const { on } = await readJson(req)
+    kill.set(on === true, 'turned on by a human in the lab')
+    audit.systemAlert('kill-switch', on === true ? 'critical' : 'info', on === true ? 'KILL SWITCH turned ON: all requests are refused' : 'kill switch turned off')
+    return sendJson(res, 200, { killed: kill.on })
+  }
+  if (req.method === 'POST' && path === '/reset') {
+    const { sessionId } = await readJson(req)
+    usage.reset(String(sessionId ?? 'anon'))
+    rateLimiter.reset(); breaker.reset(); audit.clear()
+    return sendJson(res, 200, { ok: true })
+  }
   if (req.method === 'POST' && path === '/approve') {
     const { id, ok } = await readJson(req)
     const resolve = pending.get(id)

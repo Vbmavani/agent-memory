@@ -32,10 +32,12 @@ and read [docs/graph.md](docs/graph.md). `GRAPH_MEMORY=off` turns it off.
 
 ## Guardrails lab
 
-A small support agent with tools and four guardrail layers (input, tool calls, output, budget). Send it
-something harmless, then something nasty, and watch every layer decide live; switch layers off or press
-**Compare ON vs OFF** to see what each one protects. Works with a free mock model or live DeepSeek, and
-needs no database. Open http://localhost:9200/guardrails.html and read [docs/guardrails.md](docs/guardrails.md).
+A small support agent with tools and **13 guardrail layers**: plain code, two small **trained models** (injection and toxicity, run
+locally) and cheap LLM checks (scope, judge), plus roles, rate limits, a kill switch and an audit trail. Send it something harmless,
+then something nasty, and watch every layer decide live; switch layers off or press **Compare ON vs OFF** to see what each one
+protects. Works with a free mock model or live DeepSeek, and needs no database. The two models (about 380 MB) download once, on first
+use. Open http://localhost:9200/guardrails.html, read [docs/guardrails.md](docs/guardrails.md) for how the lab works and
+[docs/guardrails-guide.md](docs/guardrails-guide.md) for the full catalog of 26 checks and the production advice.
 
 ## Users and the Search menu
 
